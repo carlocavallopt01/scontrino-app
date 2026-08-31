@@ -51,3 +51,7 @@ Per una sicurezza più alta (account personali, permessi differenziati per sede)
 - `src/lib/supabaseClient.js` — connessione a Supabase.
 - `src/lib/api.js` — tutte le letture/scritture verso il database.
 - `supabase/schema.sql` — schema del database da eseguire una sola volta su Supabase.
+
+## 5. Deploy
+
+Collegato a Vercel: build automatica ad ogni push su `main`.
