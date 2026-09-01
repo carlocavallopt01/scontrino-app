@@ -42,7 +42,7 @@ export async function getLocationsPublic() {
   const { data, error } = await supabase
     .from("locations_public")
     .select("*")
-    .order("created_at", { ascending: true });
+    .order("sort_order", { ascending: true });
   if (error) throw error;
   return data.map((l) => ({
     id: l.id,

@@ -26,6 +26,7 @@ create table if not exists locations (
   pin text not null,
   logo text,
   staff jsonb not null default '[]'::jsonb,
+  sort_order integer not null default 0,
   created_at timestamptz not null default now()
 );
 
@@ -46,7 +47,7 @@ create policy "locations anon insert" on locations
 -- permessi di chi le ha create (postgres), quindi restano leggibili da
 -- "anon" anche se la tabella sottostante ha RLS senza policy SELECT.
 create or replace view locations_public as
-  select id, name, type, logo, staff, created_at from locations;
+  select id, name, type, logo, staff, sort_order, created_at from locations;
 
 grant select on locations_public to anon;
 
@@ -146,7 +147,7 @@ language sql
 security definer
 set search_path = public
 as $$
-  select * from locations order by created_at;
+  select * from locations order by sort_order;
 $$;
 grant execute on function get_locations_admin() to anon;
 
@@ -177,12 +178,12 @@ grant execute on function update_location(text, text, text, text, text, jsonb) t
 -- ---------------------------------------------------------------------
 -- Dati iniziali (eseguire una sola volta; ON CONFLICT evita duplicati)
 -- ---------------------------------------------------------------------
-insert into locations (id, name, type, pin, logo, staff) values
-  ('palestra-1', 'FITPOINT ACTIVE', 'palestra', '1111', null, '[]'),
-  ('palestra-2', 'GIRL POWER', 'palestra', '2222', null, '[]'),
-  ('negozio-1', 'SPEED SAVA', 'negozio', '3333', null, '[]'),
-  ('negozio-2', 'SPEED MANDURIA', 'negozio', '4444', null, '[]'),
-  ('negozio-3', 'SPEED FRANCAVILLA F.', 'negozio', '5555', null, '[]')
+insert into locations (id, name, type, pin, logo, staff, sort_order) values
+  ('palestra-1', 'FITPOINT ACTIVE', 'palestra', '1111', null, '[]', 1),
+  ('palestra-2', 'GIRL POWER', 'palestra', '2222', null, '[]', 2),
+  ('negozio-1', 'SPEED SAVA', 'negozio', '3333', null, '[]', 3),
+  ('negozio-2', 'SPEED MANDURIA', 'negozio', '4444', null, '[]', 4),
+  ('negozio-3', 'SPEED FRANCAVILLA F.', 'negozio', '5555', null, '[]', 5)
 on conflict (id) do nothing;
 
 insert into settings (key, value) values
