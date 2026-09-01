@@ -67,22 +67,19 @@ export async function getLocationsAdmin() {
 }
 
 export async function saveLocations(locations) {
-  // Aggiornamento riga per riga (mai un vero upsert): le sedi sono seminate
-  // una volta sola via SQL e la UI modifica sempre e solo quelle esistenti.
-  // Un upsert (INSERT ... ON CONFLICT) richiederebbe una policy SELECT per
-  // anon sulla tabella base, che esponerebbe il PIN in chiaro: qui basta
-  // un UPDATE, governato solo dalla policy UPDATE.
+  // Passa dalla RPC update_location (security definer) invece di un
+  // UPDATE diretto sulla tabella: su questo progetto un UPDATE come anon
+  // non risultava mai effettivo nonostante grant e policy corretti, senza
+  // sollevare alcun errore. La RPC bypassa del tutto quel problema.
   for (const l of locations) {
-    const { error } = await supabase
-      .from("locations")
-      .update({
-        name: l.name,
-        type: l.type,
-        pin: l.pin,
-        logo: l.logo,
-        staff: l.staff || [],
-      })
-      .eq("id", l.id);
+    const { error } = await supabase.rpc("update_location", {
+      p_id: l.id,
+      p_name: l.name,
+      p_type: l.type,
+      p_pin: l.pin,
+      p_logo: l.logo,
+      p_staff: l.staff || [],
+    });
     if (error) throw error;
   }
 }

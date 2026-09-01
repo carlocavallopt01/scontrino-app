@@ -150,6 +150,30 @@ as $$
 $$;
 grant execute on function get_locations_admin() to anon;
 
+-- Aggiorna una sede con privilegi elevati, bypassando la RLS di anon per
+-- questa scrittura: su questo progetto un UPDATE diretto come anon non
+-- risultava mai effettivo (nessun errore, ma la riga restava invariata,
+-- anche con policy e grant corretti) nonostante il comportamento fosse
+-- quello previsto in teoria. Passare da qui evita del tutto il problema.
+create or replace function update_location(
+  p_id text,
+  p_name text,
+  p_type text,
+  p_pin text,
+  p_logo text,
+  p_staff jsonb
+)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  update locations
+  set name = p_name, type = p_type, pin = p_pin, logo = p_logo, staff = p_staff
+  where id = p_id;
+$$;
+grant execute on function update_location(text, text, text, text, text, jsonb) to anon;
+
 -- ---------------------------------------------------------------------
 -- Dati iniziali (eseguire una sola volta; ON CONFLICT evita duplicati)
 -- ---------------------------------------------------------------------
