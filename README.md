@@ -54,4 +54,4 @@ Per una sicurezza più alta (account personali, permessi differenziati per sede)
 
 ## 5. Deploy
 
-Collegato a Vercel: build automatica ad ogni push su `main`.
+Collegato a Vercel: build automatica ad ogni push su `main` (progetto Vercel: scontrino-app-26).
