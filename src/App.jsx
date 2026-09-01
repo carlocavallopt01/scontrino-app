@@ -1030,9 +1030,12 @@ function OwnerDashboard({
   const perLocation = useMemo(() => {
     return locations.map((loc) => {
       const locEntries = filtered.filter((e) => e.locationId === loc.id);
-      const incassi = locEntries.reduce((s, e) => s + e.contanti + e.pos + e.altroIncasso, 0);
+      const contanti = locEntries.reduce((s, e) => s + e.contanti, 0);
+      const pos = locEntries.reduce((s, e) => s + e.pos, 0);
+      const altro = locEntries.reduce((s, e) => s + e.altroIncasso, 0);
+      const incassi = contanti + pos + altro;
       const uscite = locEntries.reduce((s, e) => s + e.spese.reduce((a, r) => a + r.importo, 0), 0);
-      return { ...loc, incassi, uscite, netto: incassi - uscite };
+      return { ...loc, contanti, pos, altro, incassi, uscite, netto: incassi - uscite };
     });
   }, [locations, filtered]);
 
@@ -1198,7 +1201,15 @@ function OwnerDashboard({
                 )}
                 <span className="f-display font-600 text-sm">{l.name}</span>
               </div>
-              <TotRow label="Incassi" value={l.incassi} color="#1F7A5C" />
+              <TotRow label="Contanti" value={l.contanti} color="#1F7A5C" />
+              <TotRow label="POS" value={l.pos} color="#1F7A5C" />
+              <TotRow label="Altro" value={l.altro} color="#1F7A5C" />
+              <div className="flex items-center justify-between pt-1 mt-1 border-t border-paper text-sm">
+                <span className="text-muted">Incassi</span>
+                <span className="f-mono font-600" style={{ color: "#1F7A5C" }}>
+                  {fmt.format(l.incassi)}
+                </span>
+              </div>
               <TotRow label="Uscite" value={l.uscite} color="#A63A2F" />
               <div className="flex items-center justify-between pt-1 mt-1 border-t border-paper text-sm">
                 <span className="text-muted">Netto</span>
