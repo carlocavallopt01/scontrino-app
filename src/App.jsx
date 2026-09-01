@@ -1219,23 +1219,35 @@ function OwnerDashboard({
                 const loc = locations.find((l) => l.id === e.locationId);
                 const inc = e.contanti + e.pos + e.altroIncasso;
                 const sp = e.spese.reduce((s, r) => s + r.importo, 0);
+                const breakdown = [
+                  e.contanti > 0 && `Contanti ${fmt.format(e.contanti)}`,
+                  e.pos > 0 && `POS ${fmt.format(e.pos)}`,
+                  e.altroIncasso > 0 && `Altro ${fmt.format(e.altroIncasso)}`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ");
                 return (
-                  <div key={e.id} className="bg-white rounded-lg px-3 py-2 flex items-center justify-between text-sm border border-paper">
-                    <span className="text-slate2">
-                      {loc?.name || "—"}
-                      {(e.cliente || e.abbonamento) && (
-                        <span className="text-faint">
-                          {" "}
-                          · {e.cliente || "—"}
-                          {e.abbonamento ? ` (${e.abbonamento})` : ""}
-                        </span>
-                      )}
-                      {e.operatore && <span className="text-faint"> · {e.operatore}</span>}
-                    </span>
-                    <span className="f-mono">
-                      <span className="text-emerald">+{fmt.format(inc)}</span>{" "}
-                      <span className="text-brick">-{fmt.format(sp)}</span>
-                    </span>
+                  <div key={e.id} className="bg-white rounded-lg px-3 py-2 text-sm border border-paper">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate2">
+                        {loc?.name || "—"}
+                        {(e.cliente || e.abbonamento) && (
+                          <span className="text-faint">
+                            {" "}
+                            · {e.cliente || "—"}
+                            {e.abbonamento ? ` (${e.abbonamento})` : ""}
+                          </span>
+                        )}
+                        {e.operatore && <span className="text-faint"> · {e.operatore}</span>}
+                      </span>
+                      <span className="f-mono">
+                        <span className="text-emerald">+{fmt.format(inc)}</span>{" "}
+                        <span className="text-brick">-{fmt.format(sp)}</span>
+                      </span>
+                    </div>
+                    {breakdown && (
+                      <div className="f-mono text-tiny text-faint mt-1">{breakdown}</div>
+                    )}
                   </div>
                 );
               })}
