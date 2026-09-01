@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import {
   Store,
   Dumbbell,
@@ -1042,7 +1042,13 @@ function OwnerDashboard({
   const totIncassi = perLocation.reduce((s, l) => s + l.incassi, 0);
   const totUscite = perLocation.reduce((s, l) => s + l.uscite, 0);
 
-  const chartData = perLocation.map((l) => ({ name: l.name, Incassi: l.incassi, Uscite: l.uscite }));
+  const chartData = perLocation.map((l) => ({
+    name: l.name,
+    Contanti: l.contanti,
+    POS: l.pos,
+    Altro: l.altro,
+    Uscite: l.uscite,
+  }));
 
   const byDay = useMemo(() => {
     const map = {};
@@ -1171,15 +1177,18 @@ function OwnerDashboard({
         <BigStat label="Netto" value={totIncassi - totUscite} color="#14182B" />
       </div>
 
-      {chartData.some((c) => c.Incassi || c.Uscite) && (
+      {chartData.some((c) => c.Contanti || c.POS || c.Altro || c.Uscite) && (
         <div className="bg-white rounded-2xl p-4 mb-8 border border-card">
-          <ResponsiveContainer width="100%" height={220}>
+          <ResponsiveContainer width="100%" height={260}>
             <BarChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#EFEDE4" />
               <XAxis dataKey="name" tick={{ fontSize: 11, fontFamily: "Inter" }} />
               <YAxis tick={{ fontSize: 11, fontFamily: "IBM Plex Mono" }} />
               <Tooltip formatter={(v) => fmt.format(v)} contentStyle={{ fontFamily: "Inter", fontSize: 13 }} />
-              <Bar dataKey="Incassi" fill="#1F7A5C" radius={[4, 4, 0, 0]} />
+              <Legend wrapperStyle={{ fontSize: 12, fontFamily: "Inter" }} />
+              <Bar dataKey="Contanti" stackId="incassi" fill="#1F7A5C" />
+              <Bar dataKey="POS" stackId="incassi" fill="#4B9C82" />
+              <Bar dataKey="Altro" stackId="incassi" fill="#D8A23B" radius={[4, 4, 0, 0]} />
               <Bar dataKey="Uscite" fill="#A63A2F" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
