@@ -54,4 +54,4 @@ Per una sicurezza più alta (account personali, permessi differenziati per sede)
 
 ## 5. Deploy
 
-Collegato a Vercel: build automatica ad ogni push su `main` (progetto Vercel: scontrino-app-26, chiave pubblica in uso: publishable key).
+Collegato a Vercel: build automatica ad ogni push su `main` (progetto Vercel: scontrino-app; variabili d'ambiente impostate come tipo "Config", non "Secret", perché devono finire nel bundle pubblico).
