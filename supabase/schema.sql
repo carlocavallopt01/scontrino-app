@@ -47,7 +47,7 @@ create policy "locations anon insert" on locations
 -- permessi di chi le ha create (postgres), quindi restano leggibili da
 -- "anon" anche se la tabella sottostante ha RLS senza policy SELECT.
 create or replace view locations_public as
-  select id, name, type, logo, staff, sort_order, created_at from locations;
+  select id, name, type, logo, staff, created_at, sort_order from locations;
 
 grant select on locations_public to anon;
 
