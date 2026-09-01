@@ -67,16 +67,24 @@ export async function getLocationsAdmin() {
 }
 
 export async function saveLocations(locations) {
-  const rows = locations.map((l) => ({
-    id: l.id,
-    name: l.name,
-    type: l.type,
-    pin: l.pin,
-    logo: l.logo,
-    staff: l.staff || [],
-  }));
-  const { error } = await supabase.from("locations").upsert(rows, { onConflict: "id" });
-  if (error) throw error;
+  // Aggiornamento riga per riga (mai un vero upsert): le sedi sono seminate
+  // una volta sola via SQL e la UI modifica sempre e solo quelle esistenti.
+  // Un upsert (INSERT ... ON CONFLICT) richiederebbe una policy SELECT per
+  // anon sulla tabella base, che esponerebbe il PIN in chiaro: qui basta
+  // un UPDATE, governato solo dalla policy UPDATE.
+  for (const l of locations) {
+    const { error } = await supabase
+      .from("locations")
+      .update({
+        name: l.name,
+        type: l.type,
+        pin: l.pin,
+        logo: l.logo,
+        staff: l.staff || [],
+      })
+      .eq("id", l.id);
+    if (error) throw error;
+  }
 }
 
 export async function verifyLocationPin(locationId, pin) {
