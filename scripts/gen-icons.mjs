@@ -2,8 +2,8 @@ import { deflateSync } from "node:zlib";
 import { writeFileSync, mkdirSync } from "node:fs";
 
 // Minimal pure-Node PNG encoder: draws a solid background with a centered
-// rounded square and a "€" glyph approximation using simple rectangles,
-// so we get real installable PWA icons without any image dependency.
+// rounded square and a filled coin with a "$" cut through it, so we get
+// real installable PWA icons without any image dependency.
 function crc32(buf) {
   let c;
   const table = crc32.table || (crc32.table = (() => {
@@ -53,13 +53,36 @@ function makePng(size, { bg, fg, maskablePadding = 0 }) {
         r = g = b = 0;
         a = 0;
       } else {
-        // simple centered bar glyph resembling a receipt/coin mark
+        // filled coin (circle) in fg, with a "$" cut through it in bg:
+        // an S made of two opposing C-shaped arcs, plus a vertical
+        // stroke running through both.
         const dx = x - cx;
         const dy = y - cy;
-        const inGlyph =
-          Math.abs(dx) < half * 0.55 && Math.abs(dy) < half &&
-          (Math.abs(dy) < half * 0.16 || Math.abs(dy + half * 0.5) < half * 0.16 || Math.abs(dy - half * 0.5) < half * 0.16 || Math.abs(dx + half * 0.55) < half * 0.16);
-        if (inGlyph) {
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const coinRadius = half * 1.05;
+        const strokeW = half * 0.15;
+        const ringR = half * 0.44;
+        const ringInner = ringR - strokeW;
+
+        const inCoin = dist <= coinRadius;
+
+        const topCy = -half * 0.36;
+        const tdx = dx;
+        const tdy = dy - topCy;
+        const tdist = Math.sqrt(tdx * tdx + tdy * tdy);
+        const inTopRing = tdist >= ringInner && tdist <= ringR && !(tdx > 0 && tdy > 0);
+
+        const botCy = half * 0.36;
+        const bdx = dx;
+        const bdy = dy - botCy;
+        const bdist = Math.sqrt(bdx * bdx + bdy * bdy);
+        const inBottomRing = bdist >= ringInner && bdist <= ringR && !(bdx < 0 && bdy < 0);
+
+        const inVerticalStroke = Math.abs(dx) < strokeW * 0.85 && Math.abs(dy) < coinRadius * 0.82;
+
+        const inDollarSign = inTopRing || inBottomRing || inVerticalStroke;
+
+        if (inCoin && !inDollarSign) {
           [r, g, b] = fg;
         } else {
           [r, g, b] = bg;
