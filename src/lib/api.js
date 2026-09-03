@@ -156,6 +156,21 @@ export async function getCashFloat(locationId, date) {
   return data ? Number(data.amount) : null;
 }
 
+export async function getLatestCashFloats() {
+  const { data, error } = await supabase
+    .from("cash_floats")
+    .select("location_id, date, amount")
+    .order("date", { ascending: false });
+  if (error) throw error;
+  const byLocation = {};
+  for (const row of data) {
+    if (!byLocation[row.location_id]) {
+      byLocation[row.location_id] = { date: row.date, amount: Number(row.amount) };
+    }
+  }
+  return byLocation;
+}
+
 export async function setCashFloat(locationId, date, amount) {
   // Delete + insert invece di un upsert: su questo progetto un upsert
   // (INSERT ... ON CONFLICT) su locations non risultava mai effettivo per

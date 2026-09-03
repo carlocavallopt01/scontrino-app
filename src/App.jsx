@@ -31,6 +31,7 @@ import {
   clearAllEntries as apiClearAllEntries,
   getCashFloat,
   setCashFloat,
+  getLatestCashFloats,
 } from "./lib/api";
 
 const DEFAULT_SUBSCRIPTION_TYPES = ["Mensile", "Trimestrale", "Semestrale", "Annuale", "Ingresso singolo", "Altro"];
@@ -1002,9 +1003,18 @@ function OwnerDashboard({
   const [period, setPeriod] = useState("today");
   const [refreshing, setRefreshing] = useState(false);
 
+  const [cashFloats, setCashFloats] = useState({});
+  const loadCashFloats = useCallback(() => {
+    getLatestCashFloats().then(setCashFloats).catch(() => {});
+  }, []);
+  useEffect(() => {
+    loadCashFloats();
+  }, [loadCashFloats]);
+
   const handleRefresh = async () => {
     setRefreshing(true);
     await onRefresh();
+    loadCashFloats();
     setTimeout(() => setRefreshing(false), 400);
   };
 
@@ -1270,6 +1280,16 @@ function OwnerDashboard({
                 )}
                 <span className="f-display font-600 text-sm">{l.name}</span>
               </div>
+              {cashFloats[l.id] && (
+                <div className="text-tiny text-faint mb-2">
+                  Fondo cassa: {fmt.format(cashFloats[l.id].amount)} (agg. al{" "}
+                  {new Date(cashFloats[l.id].date + "T00:00:00").toLocaleDateString("it-IT", {
+                    day: "2-digit",
+                    month: "2-digit",
+                  })}
+                  )
+                </div>
+              )}
               <TotRow label="Contanti" value={l.contanti} color="#1F7A5C" />
               <TotRow label="POS" value={l.pos} color="#1F7A5C" />
               <TotRow label="Altro" value={l.altro} color="#1F7A5C" />
