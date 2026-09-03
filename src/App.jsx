@@ -221,7 +221,7 @@ export default function App() {
 
   useEffect(() => {
     if (mode !== "owner" || settingsOpen) return;
-    const interval = setInterval(() => loadEntries(true), 60000);
+    const interval = setInterval(() => loadEntries(true), 10000);
     return () => clearInterval(interval);
   }, [mode, settingsOpen, loadEntries]);
 
@@ -1175,7 +1175,7 @@ function OwnerDashboard({
       {lastUpdated && (
         <div className="f-mono text-tiny text-faint mb-3">
           Aggiornato alle {lastUpdated.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })} ·
-          si aggiorna da solo ogni 60s
+          si aggiorna da solo ogni 10s
         </div>
       )}
 
