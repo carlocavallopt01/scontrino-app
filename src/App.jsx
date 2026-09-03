@@ -31,7 +31,7 @@ import {
   clearAllEntries as apiClearAllEntries,
   getCashFloat,
   setCashFloat,
-  getLatestCashFloats,
+  getCashFloatsList,
 } from "./lib/api";
 
 const DEFAULT_SUBSCRIPTION_TYPES = ["Mensile", "Trimestrale", "Semestrale", "Annuale", "Ingresso singolo", "Altro"];
@@ -1003,13 +1003,29 @@ function OwnerDashboard({
   const [period, setPeriod] = useState("today");
   const [refreshing, setRefreshing] = useState(false);
 
-  const [cashFloats, setCashFloats] = useState({});
+  const [cashFloatsList, setCashFloatsList] = useState([]);
   const loadCashFloats = useCallback(() => {
-    getLatestCashFloats().then(setCashFloats).catch(() => {});
+    getCashFloatsList().then(setCashFloatsList).catch(() => {});
   }, []);
   useEffect(() => {
     loadCashFloats();
   }, [loadCashFloats]);
+
+  const latestCashFloatByLocation = useMemo(() => {
+    const map = {};
+    for (const row of cashFloatsList) {
+      if (!map[row.locationId]) map[row.locationId] = row;
+    }
+    return map;
+  }, [cashFloatsList]);
+
+  const cashFloatByDateLocation = useMemo(() => {
+    const map = {};
+    for (const row of cashFloatsList) {
+      map[`${row.date}|${row.locationId}`] = row.amount;
+    }
+    return map;
+  }, [cashFloatsList]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -1280,10 +1296,10 @@ function OwnerDashboard({
                 )}
                 <span className="f-display font-600 text-sm">{l.name}</span>
               </div>
-              {cashFloats[l.id] && (
+              {latestCashFloatByLocation[l.id] && (
                 <div className="text-tiny text-faint mb-2">
-                  Fondo cassa: {fmt.format(cashFloats[l.id].amount)} (agg. al{" "}
-                  {new Date(cashFloats[l.id].date + "T00:00:00").toLocaleDateString("it-IT", {
+                  Fondo cassa: {fmt.format(latestCashFloatByLocation[l.id].amount)} (agg. al{" "}
+                  {new Date(latestCashFloatByLocation[l.id].date + "T00:00:00").toLocaleDateString("it-IT", {
                     day: "2-digit",
                     month: "2-digit",
                   })}
@@ -1311,9 +1327,24 @@ function OwnerDashboard({
       <div className="f-mono text-xs uppercase tracking-widest text-muted mb-3">Dettaglio giorni</div>
       {byDay.length === 0 && <div className="text-sm text-faint italic">Nessuna voce nel periodo selezionato</div>}
       <div className="space-y-4">
-        {byDay.map(([date, dayEntries]) => (
+        {byDay.map(([date, dayEntries]) => {
+          const locIdsForDay = [...new Set(dayEntries.map((e) => e.locationId))];
+          const floatsForDay = locIdsForDay
+            .map((locId) => {
+              const amount = cashFloatByDateLocation[`${date}|${locId}`];
+              if (amount == null) return null;
+              const loc = locations.find((l) => l.id === locId);
+              return { name: loc?.name || "—", amount };
+            })
+            .filter(Boolean);
+          return (
           <div key={date}>
             <div className="text-sm font-600 mb-2 capitalize">{fmtDateLabel(date)}</div>
+            {floatsForDay.length > 0 && (
+              <div className="text-tiny text-faint mb-2">
+                Fondo cassa: {floatsForDay.map((f) => `${f.name} ${fmt.format(f.amount)}`).join(" · ")}
+              </div>
+            )}
             <div className="space-y-1.5">
               {dayEntries.map((e) => {
                 const loc = locations.find((l) => l.id === e.locationId);
@@ -1353,7 +1384,8 @@ function OwnerDashboard({
               })}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {showSettings && (
