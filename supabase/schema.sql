@@ -176,6 +176,22 @@ $$;
 grant execute on function update_location(text, text, text, text, text, jsonb) to anon;
 
 -- ---------------------------------------------------------------------
+-- Fondo cassa iniziale (uno per sede e giornata)
+-- ---------------------------------------------------------------------
+create table if not exists cash_floats (
+  location_id text not null references locations(id) on delete cascade,
+  date date not null,
+  amount numeric not null default 0,
+  primary key (location_id, date)
+);
+
+alter table cash_floats enable row level security;
+
+drop policy if exists "cash_floats anon all" on cash_floats;
+create policy "cash_floats anon all" on cash_floats
+  for all to anon using (true) with check (true);
+
+-- ---------------------------------------------------------------------
 -- Dati iniziali (eseguire una sola volta; ON CONFLICT evita duplicati)
 -- ---------------------------------------------------------------------
 insert into locations (id, name, type, pin, logo, staff, sort_order) values

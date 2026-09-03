@@ -29,6 +29,8 @@ import {
   addEntry as apiAddEntry,
   deleteEntry as apiDeleteEntry,
   clearAllEntries as apiClearAllEntries,
+  getCashFloat,
+  setCashFloat,
 } from "./lib/api";
 
 const DEFAULT_SUBSCRIPTION_TYPES = ["Mensile", "Trimestrale", "Semestrale", "Annuale", "Ingresso singolo", "Altro"];
@@ -594,6 +596,38 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
   const [saveError, setSaveError] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const [fondoCassa, setFondoCassa] = useState("");
+  const [fondoCassaLoaded, setFondoCassaLoaded] = useState(false);
+  const [fondoCassaSaving, setFondoCassaSaving] = useState(false);
+  const [fondoCassaSaved, setFondoCassaSaved] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setFondoCassaLoaded(false);
+    getCashFloat(location.id, date)
+      .then((amount) => {
+        if (cancelled) return;
+        setFondoCassa(amount != null ? String(amount).replace(".", ",") : "");
+        setFondoCassaLoaded(true);
+      })
+      .catch(() => setFondoCassaLoaded(true));
+    return () => {
+      cancelled = true;
+    };
+  }, [location.id, date]);
+
+  const handleSaveFondoCassa = async () => {
+    setFondoCassaSaving(true);
+    try {
+      await setCashFloat(location.id, date, toNum(fondoCassa));
+      setFondoCassaSaved(true);
+      setTimeout(() => setFondoCassaSaved(false), 1500);
+    } catch {
+      // riproveremo al prossimo tentativo di salvataggio
+    }
+    setFondoCassaSaving(false);
+  };
+
   const totIncasso = toNum(contanti) + toNum(pos) + toNum(altro);
   const totSpese = spese.reduce((s, r) => s + toNum(r.importo), 0);
   const netto = totIncasso - totSpese;
@@ -688,6 +722,32 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
             onChange={(e) => setDate(e.target.value)}
             className="f-mono text-sm bg-card rounded-lg px-3 py-1.5 border border-card"
           />
+        </div>
+
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-sm flex-1 text-muted">Fondo cassa iniziale</span>
+          <div className="relative w-28">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 f-mono text-sm text-faint">€</span>
+            <input
+              inputMode="decimal"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck="false"
+              placeholder="0"
+              value={fondoCassa}
+              disabled={!fondoCassaLoaded}
+              onChange={(e) => setFondoCassa(e.target.value)}
+              style={{ WebkitTextFillColor: "#14182B", color: "#14182B" }}
+              className="f-mono w-full text-sm bg-card rounded-lg pl-7 pr-3 py-2 border border-card text-right disabled:opacity-50"
+            />
+          </div>
+          <button
+            onClick={handleSaveFondoCassa}
+            disabled={!fondoCassaLoaded || fondoCassaSaving}
+            className="shrink-0 f-mono text-xs bg-card rounded-lg px-3 py-2 border border-card text-slate2 disabled:opacity-50"
+          >
+            {fondoCassaSaved ? <Check className="w-4 h-4" /> : fondoCassaSaving ? "..." : "Salva"}
+          </button>
         </div>
 
         <div className="dashed mb-4" />

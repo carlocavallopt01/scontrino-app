@@ -144,3 +144,30 @@ export async function clearAllEntries() {
   const { error } = await supabase.from("entries").delete().neq("id", "");
   if (error) throw error;
 }
+
+export async function getCashFloat(locationId, date) {
+  const { data, error } = await supabase
+    .from("cash_floats")
+    .select("amount")
+    .eq("location_id", locationId)
+    .eq("date", date)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? Number(data.amount) : null;
+}
+
+export async function setCashFloat(locationId, date, amount) {
+  // Delete + insert invece di un upsert: su questo progetto un upsert
+  // (INSERT ... ON CONFLICT) su locations non risultava mai effettivo per
+  // motivi mai chiariti; insert e delete singoli invece hanno sempre
+  // funzionato, quindi qui evitiamo del tutto ON CONFLICT.
+  await supabase
+    .from("cash_floats")
+    .delete()
+    .eq("location_id", locationId)
+    .eq("date", date);
+  const { error } = await supabase
+    .from("cash_floats")
+    .insert({ location_id: locationId, date, amount });
+  if (error) throw error;
+}
