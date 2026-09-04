@@ -59,6 +59,7 @@ create table if not exists entries (
   location_id text not null references locations(id) on delete cascade,
   date date not null,
   contanti numeric not null default 0,
+  contanti_inviato boolean not null default false,
   pos numeric not null default 0,
   altro_incasso numeric not null default 0,
   spese jsonb not null default '[]'::jsonb,
@@ -189,6 +190,31 @@ alter table cash_floats enable row level security;
 
 drop policy if exists "cash_floats anon all" on cash_floats;
 create policy "cash_floats anon all" on cash_floats
+  for all to anon using (true) with check (true);
+
+-- ---------------------------------------------------------------------
+-- Chiusure di cassa: una per sede/giornata. Presente = quel giorno è
+-- bloccato per lo staff (non può più aggiungere/cancellare voci). Solo
+-- il Titolare può modificarne i numeri o riaprirla (eliminandola).
+-- ---------------------------------------------------------------------
+create table if not exists closures (
+  id text primary key,
+  location_id text not null references locations(id) on delete cascade,
+  date date not null,
+  contanti numeric not null default 0,
+  pos numeric not null default 0,
+  altro_incasso numeric not null default 0,
+  totale_uscite numeric not null default 0,
+  fondo_cassa numeric,
+  operatore text default '',
+  submitted_at timestamptz not null default now(),
+  unique (location_id, date)
+);
+
+alter table closures enable row level security;
+
+drop policy if exists "closures anon all" on closures;
+create policy "closures anon all" on closures
   for all to anon using (true) with check (true);
 
 -- ---------------------------------------------------------------------

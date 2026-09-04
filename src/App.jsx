@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import * as XLSX from "xlsx";
 import {
   Store,
   Dumbbell,
@@ -15,6 +16,9 @@ import {
   Loader2,
   RefreshCw,
   Download,
+  ClipboardCheck,
+  X,
+  RotateCcw,
 } from "lucide-react";
 import {
   getLocationsPublic,
@@ -32,6 +36,11 @@ import {
   getCashFloat,
   setCashFloat,
   getCashFloatsList,
+  getClosure,
+  getClosuresList,
+  submitClosure,
+  editClosure,
+  reopenClosure,
 } from "./lib/api";
 
 const DEFAULT_SUBSCRIPTION_TYPES = ["Mensile", "Trimestrale", "Semestrale", "Annuale", "Ingresso singolo", "Altro"];
@@ -586,6 +595,7 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
   const [operatore, setOperatore] = useState(names[0] || "");
   const [date, setDate] = useState(todayStr());
   const [contanti, setContanti] = useState("");
+  const [contantiInviato, setContantiInviato] = useState(false);
   const [pos, setPos] = useState("");
   const [altro, setAltro] = useState("");
   const [spese, setSpese] = useState([]);
@@ -617,6 +627,24 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
     };
   }, [location.id, date]);
 
+  const [closure, setClosure] = useState(null);
+  const [closing, setClosing] = useState(false);
+  const [closeError, setCloseError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getClosure(location.id, date)
+      .then((c) => {
+        if (!cancelled) setClosure(c);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [location.id, date]);
+
+  const isLocked = !!closure;
+
   const handleSaveFondoCassa = async () => {
     setFondoCassaSaving(true);
     try {
@@ -637,7 +665,7 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
   const updateSpesa = (id, patch) => setSpese((s) => s.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   const removeSpesa = (id) => setSpese((s) => s.filter((r) => r.id !== id));
 
-  const canSave = (totIncasso > 0 || totSpese > 0) && (names.length === 0 || operatore);
+  const canSave = !isLocked && (totIncasso > 0 || totSpese > 0) && (names.length === 0 || operatore);
 
   const handleSave = async () => {
     const abbonamentoFinale =
@@ -649,6 +677,7 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
       locationId: location.id,
       date,
       contanti: toNum(contanti),
+      contantiInviato,
       pos: toNum(pos),
       altroIncasso: toNum(altro),
       spese: spese.map((s) => ({ categoria: s.categoria, importo: toNum(s.importo), nota: s.nota })),
@@ -667,6 +696,7 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
       return;
     }
     setContanti("");
+    setContantiInviato(false);
     setPos("");
     setAltro("");
     setSpese([]);
@@ -685,6 +715,42 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
   const todaysForLocation = entries
     .filter((e) => e.locationId === location.id && e.date === date)
     .sort((a, b) => b.enteredAt.localeCompare(a.enteredAt));
+
+  const todaysTotals = todaysForLocation.reduce(
+    (acc, e) => {
+      acc.contanti += e.contanti;
+      acc.pos += e.pos;
+      acc.altro += e.altroIncasso;
+      acc.uscite += e.spese.reduce((s, r) => s + r.importo, 0);
+      return acc;
+    },
+    { contanti: 0, pos: 0, altro: 0, uscite: 0 }
+  );
+  const todaysNetto = todaysTotals.contanti + todaysTotals.pos + todaysTotals.altro - todaysTotals.uscite;
+
+  const handleSubmitClosure = async () => {
+    setClosing(true);
+    setCloseError(false);
+    try {
+      await submitClosure({
+        id: uid(),
+        locationId: location.id,
+        date,
+        contanti: todaysTotals.contanti,
+        pos: todaysTotals.pos,
+        altroIncasso: todaysTotals.altro,
+        totaleUscite: todaysTotals.uscite,
+        fondoCassa: fondoCassa !== "" ? toNum(fondoCassa) : null,
+        operatore: operatore || "",
+        submittedAt: new Date().toISOString(),
+      });
+      const c = await getClosure(location.id, date);
+      setClosure(c);
+    } catch {
+      setCloseError(true);
+    }
+    setClosing(false);
+  };
 
   return (
     <div className="max-w-xl mx-auto px-6 pt-10 pb-24">
@@ -744,17 +810,27 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
           </div>
           <button
             onClick={handleSaveFondoCassa}
-            disabled={!fondoCassaLoaded || fondoCassaSaving}
+            disabled={!fondoCassaLoaded || fondoCassaSaving || isLocked}
             className="shrink-0 f-mono text-xs bg-card rounded-lg px-3 py-2 border border-card text-slate2 disabled:opacity-50"
           >
             {fondoCassaSaved ? <Check className="w-4 h-4" /> : fondoCassaSaving ? "..." : "Salva"}
           </button>
         </div>
 
+        {!isLocked ? (
+          <>
         <div className="dashed mb-4" />
 
         <div className="mb-1 f-mono text-xs uppercase tracking-widest text-emerald">Incassi</div>
         <MoneyRow icon={<Coins className="w-4 h-4" />} label="Contanti" value={contanti} onChange={setContanti} />
+        <label className="flex items-center gap-2 mb-2 ml-7 text-xs text-muted">
+          <input
+            type="checkbox"
+            checked={contantiInviato}
+            onChange={(e) => setContantiInviato(e.target.checked)}
+          />
+          Inviato (scontrino emesso)
+        </label>
         <MoneyRow icon={<CreditCard className="w-4 h-4" />} label="POS / Carta" value={pos} onChange={setPos} />
         <MoneyRow icon={<Wallet className="w-4 h-4" />} label="Altro" value={altro} onChange={setAltro} />
 
@@ -894,6 +970,26 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
             (i dati inseriti non sono andati persi).
           </div>
         )}
+          </>
+        ) : (
+          <>
+            <div className="dashed mb-4" />
+            <div className="bg-card rounded-xl p-4 text-sm">
+              <div className="flex items-center gap-2 mb-1 font-600 text-emerald">
+                <Check className="w-4 h-4" /> Giornata chiusa
+              </div>
+              <p className="text-xs text-muted">
+                Chiusura inviata alle{" "}
+                {closure &&
+                  new Date(closure.submittedAt).toLocaleTimeString("it-IT", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                {closure?.operatore ? ` da ${closure.operatore}` : ""}. Per modifiche contatta il Titolare.
+              </p>
+            </div>
+          </>
+        )}
       </div>
 
       {todaysForLocation.length > 0 && (
@@ -919,14 +1015,61 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
                       <span className="text-emerald">+{fmt.format(inc)}</span>{" "}
                       <span className="text-brick">-{fmt.format(sp)}</span>
                     </div>
+                    {e.contanti > 0 && (
+                      <div className={`text-tiny mt-0.5 ${e.contantiInviato ? "text-emerald" : "text-brick"}`}>
+                        Contanti {e.contantiInviato ? "✓ inviato" : "⚠ non inviato"}
+                      </div>
+                    )}
                   </div>
-                  <button onClick={() => handleDelete(e.id)} className="text-faint trash-hover">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {!isLocked && (
+                    <button onClick={() => handleDelete(e.id)} className="text-faint trash-hover">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               );
             })}
           </div>
+        </div>
+      )}
+
+      {!isLocked && (
+        <div className="mt-8 bg-white rounded-2xl p-6 border border-card">
+          <div className="f-mono text-xs uppercase tracking-widest text-muted mb-3">
+            Chiusura di cassa — {fmtDateLabel(date)}
+          </div>
+          <div className="space-y-1 mb-4">
+            <TotRow label="Contanti" value={todaysTotals.contanti} color="#1F7A5C" />
+            <TotRow label="POS" value={todaysTotals.pos} color="#1F7A5C" />
+            <TotRow label="Altro" value={todaysTotals.altro} color="#1F7A5C" />
+            <TotRow label="Uscite" value={todaysTotals.uscite} color="#A63A2F" />
+            <div className="flex items-center justify-between pt-2 border-t border-ink">
+              <span className="f-display font-600">Netto giornata</span>
+              <span className="f-mono text-lg font-600">{fmt.format(todaysNetto)}</span>
+            </div>
+          </div>
+          <button
+            onClick={handleSubmitClosure}
+            disabled={closing}
+            className="w-full rounded-xl py-3 f-display font-600 bg-brick text-white disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {closing ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" /> Invio chiusura…
+              </>
+            ) : (
+              "Invia chiusura di cassa"
+            )}
+          </button>
+          <p className="text-center text-xs text-faint mt-2">
+            Dopo l&apos;invio, questa giornata per questa sede non sarà più modificabile: le correzioni
+            potrà farle solo il Titolare.
+          </p>
+          {closeError && (
+            <div className="text-center text-xs text-brick mt-2 font-600">
+              Invio non riuscito. Riprova tra poco.
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1002,6 +1145,7 @@ function OwnerDashboard({
 }) {
   const [period, setPeriod] = useState("today");
   const [refreshing, setRefreshing] = useState(false);
+  const [showClosures, setShowClosures] = useState(false);
 
   const [cashFloatsList, setCashFloatsList] = useState([]);
   const loadCashFloats = useCallback(() => {
@@ -1162,6 +1306,14 @@ function OwnerDashboard({
           </button>
           <button onClick={handleRefresh} className="p-2 rounded-lg hover:bg-black/5" aria-label="Aggiorna">
             <RefreshCw className={`w-5 h-5 ${refreshing ? "animate-spin" : ""}`} />
+          </button>
+          <button
+            onClick={() => setShowClosures(true)}
+            className="p-2 rounded-lg hover:bg-black/5"
+            aria-label="Chiusure Attività"
+            title="Chiusure Attività"
+          >
+            <ClipboardCheck className="w-5 h-5" />
           </button>
           <button onClick={() => setShowSettings(true)} className="p-2 rounded-lg hover:bg-black/5" aria-label="Impostazioni">
             <Settings className="w-5 h-5" />
@@ -1351,7 +1503,7 @@ function OwnerDashboard({
                 const inc = e.contanti + e.pos + e.altroIncasso;
                 const sp = e.spese.reduce((s, r) => s + r.importo, 0);
                 const breakdown = [
-                  e.contanti > 0 && `Contanti ${fmt.format(e.contanti)}`,
+                  e.contanti > 0 && `Contanti ${fmt.format(e.contanti)} ${e.contantiInviato ? "✓" : "⚠"}`,
                   e.pos > 0 && `POS ${fmt.format(e.pos)}`,
                   e.altroIncasso > 0 && `Altro ${fmt.format(e.altroIncasso)}`,
                 ]
@@ -1401,6 +1553,7 @@ function OwnerDashboard({
           onDismissError={onDismissError}
         />
       )}
+      {showClosures && <ClosuresModal locations={locations} onClose={() => setShowClosures(false)} />}
     </div>
   );
 }
@@ -1411,6 +1564,282 @@ function BigStat({ label, value, color }) {
       <div className="f-mono text-tiny2 uppercase tracking-widest text-faint mb-1">{label}</div>
       <div className="f-mono text-lg font-600" style={{ color }}>
         {fmt.format(value)}
+      </div>
+    </div>
+  );
+}
+
+const CLOSURE_FIELDS = [
+  { key: "contanti", label: "Contanti" },
+  { key: "pos", label: "POS" },
+  { key: "altroIncasso", label: "Altro" },
+  { key: "totaleUscite", label: "Uscite" },
+  { key: "fondoCassa", label: "Fondo cassa" },
+];
+
+function ClosuresModal({ locations, onClose }) {
+  const [closuresList, setClosuresList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedLoc, setSelectedLoc] = useState(new Set(locations.map((l) => l.id)));
+  const [dateFrom, setDateFrom] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 6);
+    return d.toISOString().slice(0, 10);
+  });
+  const [dateTo, setDateTo] = useState(todayStr());
+  const [editingId, setEditingId] = useState(null);
+  const [editValues, setEditValues] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [reopeningId, setReopeningId] = useState(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    getClosuresList()
+      .then((list) => {
+        setClosuresList(list);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const toggleLoc = (id) =>
+    setSelectedLoc((s) => {
+      const next = new Set(s);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  const filtered = closuresList.filter(
+    (c) => selectedLoc.has(c.locationId) && c.date >= dateFrom && c.date <= dateTo
+  );
+
+  const startEdit = (c) => {
+    setEditingId(c.id);
+    setEditValues({
+      contanti: String(c.contanti).replace(".", ","),
+      pos: String(c.pos).replace(".", ","),
+      altroIncasso: String(c.altroIncasso).replace(".", ","),
+      totaleUscite: String(c.totaleUscite).replace(".", ","),
+      fondoCassa: c.fondoCassa != null ? String(c.fondoCassa).replace(".", ",") : "",
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditValues({});
+  };
+
+  const saveEdit = async (c) => {
+    setSaving(true);
+    try {
+      await editClosure({
+        ...c,
+        contanti: toNum(editValues.contanti),
+        pos: toNum(editValues.pos),
+        altroIncasso: toNum(editValues.altroIncasso),
+        totaleUscite: toNum(editValues.totaleUscite),
+        fondoCassa: editValues.fondoCassa !== "" ? toNum(editValues.fondoCassa) : null,
+      });
+      setEditingId(null);
+      load();
+    } catch {
+      // l'utente può riprovare a salvare
+    }
+    setSaving(false);
+  };
+
+  const handleReopen = async (id) => {
+    setReopeningId(id);
+    try {
+      await reopenClosure(id);
+      load();
+    } catch {
+      // l'utente può riprovare
+    }
+    setReopeningId(null);
+  };
+
+  const handleExport = () => {
+    const rows = filtered.map((c) => {
+      const loc = locations.find((l) => l.id === c.locationId);
+      const netto = c.contanti + c.pos + c.altroIncasso - c.totaleUscite;
+      return {
+        Data: c.date,
+        Sede: loc?.name || "—",
+        Contanti: c.contanti,
+        POS: c.pos,
+        Altro: c.altroIncasso,
+        Uscite: c.totaleUscite,
+        Netto: netto,
+        "Fondo cassa": c.fondoCassa ?? "",
+        Operatore: c.operatore || "",
+        "Inviata il": c.submittedAt ? new Date(c.submittedAt).toLocaleString("it-IT") : "",
+      };
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Chiusure");
+    XLSX.writeFile(wb, `chiusure_${dateFrom}_${dateTo}.xlsx`);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-6 z-50" onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl p-6 w-full max-w-2xl overflow-y-auto"
+        style={{ maxHeight: "85vh" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="f-display font-600">Chiusure Attività</h3>
+          <button onClick={onClose} className="p-1 text-faint hover:text-ink">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <p className="text-xs text-muted mb-4">
+          Le chiusure inviate dallo staff a fine giornata. Puoi correggere i numeri o riaprire una
+          giornata (elimina la chiusura e la sblocca per lo staff).
+        </p>
+
+        <div className="flex flex-wrap gap-2 mb-3">
+          {locations.map((l) => (
+            <button
+              key={l.id}
+              onClick={() => toggleLoc(l.id)}
+              className={`px-3 py-1 rounded-full text-xs f-mono border ${
+                selectedLoc.has(l.id) ? "border-ink text-ink" : "border-card text-faint2"
+              }`}
+            >
+              {l.name}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2 mb-4 flex-wrap">
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="f-mono text-sm bg-card rounded-lg px-3 py-1.5 border border-card"
+          />
+          <span className="text-faint">→</span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="f-mono text-sm bg-card rounded-lg px-3 py-1.5 border border-card"
+          />
+          <button
+            onClick={handleExport}
+            disabled={filtered.length === 0}
+            className="ml-auto flex items-center gap-1 f-mono text-xs bg-ink text-white rounded-lg px-3 py-2 disabled:opacity-30"
+          >
+            <Download className="w-3.5 h-3.5" /> Esporta Excel
+          </button>
+        </div>
+
+        {loading && <div className="text-sm text-faint italic">Caricamento…</div>}
+        {!loading && filtered.length === 0 && (
+          <div className="text-sm text-faint italic">Nessuna chiusura nel periodo/sedi selezionati</div>
+        )}
+
+        <div className="space-y-3">
+          {filtered.map((c) => {
+            const loc = locations.find((l) => l.id === c.locationId);
+            const netto = c.contanti + c.pos + c.altroIncasso - c.totaleUscite;
+            const isEditing = editingId === c.id;
+            return (
+              <div key={c.id} className="border border-card rounded-xl p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <div className="f-display font-600 text-sm">{loc?.name || "—"}</div>
+                    <div className="text-xs text-faint">
+                      {fmtDateLabel(c.date)}
+                      {c.operatore ? ` · ${c.operatore}` : ""}
+                      {c.submittedAt
+                        ? ` · inviata alle ${new Date(c.submittedAt).toLocaleTimeString("it-IT", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}`
+                        : ""}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {!isEditing && (
+                      <button
+                        onClick={() => startEdit(c)}
+                        className="f-mono text-xs bg-card rounded-lg px-2 py-1.5 border border-card text-slate2"
+                      >
+                        Modifica
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleReopen(c.id)}
+                      disabled={reopeningId === c.id}
+                      className="p-1.5 text-faint hover:text-brick disabled:opacity-30"
+                      title="Riapri (elimina la chiusura, sblocca per lo staff)"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {!isEditing ? (
+                  <div className="grid grid-cols-2 gap-x-4">
+                    <TotRow label="Contanti" value={c.contanti} color="#1F7A5C" />
+                    <TotRow label="POS" value={c.pos} color="#1F7A5C" />
+                    <TotRow label="Altro" value={c.altroIncasso} color="#1F7A5C" />
+                    <TotRow label="Uscite" value={c.totaleUscite} color="#A63A2F" />
+                    {c.fondoCassa != null && (
+                      <TotRow label="Fondo cassa" value={c.fondoCassa} color="#4B5563" />
+                    )}
+                    <div className="flex items-center justify-between text-sm font-600">
+                      <span>Netto</span>
+                      <span className="f-mono">{fmt.format(netto)}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {CLOSURE_FIELDS.map(({ key, label }) => (
+                      <div key={key} className="flex items-center gap-2">
+                        <span className="text-xs text-muted flex-1">{label}</span>
+                        <div className="relative w-28">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 f-mono text-sm text-faint">
+                            €
+                          </span>
+                          <input
+                            inputMode="decimal"
+                            value={editValues[key]}
+                            onChange={(e) => setEditValues((v) => ({ ...v, [key]: e.target.value }))}
+                            className="f-mono w-full text-sm bg-card rounded-lg pl-7 pr-3 py-1.5 border border-card text-right"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={cancelEdit}
+                        className="flex-1 text-sm text-slate2 border border-card rounded-lg py-1.5 f-display font-600"
+                      >
+                        Annulla
+                      </button>
+                      <button
+                        onClick={() => saveEdit(c)}
+                        disabled={saving}
+                        className="flex-1 text-sm bg-ink text-white rounded-lg py-1.5 f-display font-600 disabled:opacity-50"
+                      >
+                        {saving ? "Salvataggio…" : "Salva modifiche"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

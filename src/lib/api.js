@@ -6,6 +6,7 @@ function mapEntryFromDb(row) {
     locationId: row.location_id,
     date: row.date,
     contanti: Number(row.contanti) || 0,
+    contantiInviato: Boolean(row.contanti_inviato),
     pos: Number(row.pos) || 0,
     altroIncasso: Number(row.altro_incasso) || 0,
     spese: (row.spese || []).map((s) => ({
@@ -27,6 +28,7 @@ function mapEntryToDb(entry) {
     location_id: entry.locationId,
     date: entry.date,
     contanti: entry.contanti,
+    contanti_inviato: entry.contantiInviato,
     pos: entry.pos,
     altro_incasso: entry.altroIncasso,
     spese: entry.spese,
@@ -182,5 +184,73 @@ export async function setCashFloat(locationId, date, amount) {
   const { error } = await supabase
     .from("cash_floats")
     .insert({ location_id: locationId, date, amount });
+  if (error) throw error;
+}
+
+function mapClosureFromDb(row) {
+  return {
+    id: row.id,
+    locationId: row.location_id,
+    date: row.date,
+    contanti: Number(row.contanti) || 0,
+    pos: Number(row.pos) || 0,
+    altroIncasso: Number(row.altro_incasso) || 0,
+    totaleUscite: Number(row.totale_uscite) || 0,
+    fondoCassa: row.fondo_cassa != null ? Number(row.fondo_cassa) : null,
+    operatore: row.operatore || "",
+    submittedAt: row.submitted_at,
+  };
+}
+
+function mapClosureToDb(c) {
+  return {
+    id: c.id,
+    location_id: c.locationId,
+    date: c.date,
+    contanti: c.contanti,
+    pos: c.pos,
+    altro_incasso: c.altroIncasso,
+    totale_uscite: c.totaleUscite,
+    fondo_cassa: c.fondoCassa,
+    operatore: c.operatore,
+    submitted_at: c.submittedAt,
+  };
+}
+
+export async function getClosure(locationId, date) {
+  const { data, error } = await supabase
+    .from("closures")
+    .select("*")
+    .eq("location_id", locationId)
+    .eq("date", date)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? mapClosureFromDb(data) : null;
+}
+
+export async function getClosuresList() {
+  const { data, error } = await supabase
+    .from("closures")
+    .select("*")
+    .order("date", { ascending: false });
+  if (error) throw error;
+  return data.map(mapClosureFromDb);
+}
+
+export async function submitClosure(closure) {
+  const { error } = await supabase.from("closures").insert(mapClosureToDb(closure));
+  if (error) throw error;
+}
+
+export async function editClosure(closure) {
+  // Delete + insert (stesso id) invece di un UPDATE, per lo stesso motivo
+  // spiegato sopra per cash_floats.
+  await supabase.from("closures").delete().eq("id", closure.id);
+  const { error } = await supabase.from("closures").insert(mapClosureToDb(closure));
+  if (error) throw error;
+}
+
+export async function reopenClosure(id) {
+  const { error } = await supabase.from("closures").delete().eq("id", id);
   if (error) throw error;
 }
