@@ -1591,6 +1591,7 @@ function ClosuresModal({ locations, onClose }) {
   const [editValues, setEditValues] = useState({});
   const [saving, setSaving] = useState(false);
   const [reopeningId, setReopeningId] = useState(null);
+  const [compareMode, setCompareMode] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -1616,6 +1617,18 @@ function ClosuresModal({ locations, onClose }) {
   const filtered = closuresList.filter(
     (c) => selectedLoc.has(c.locationId) && c.date >= dateFrom && c.date <= dateTo
   );
+
+  const comparison = locations
+    .filter((l) => selectedLoc.has(l.id))
+    .map((l) => {
+      const rows = filtered.filter((c) => c.locationId === l.id);
+      const contanti = rows.reduce((s, c) => s + c.contanti, 0);
+      const pos = rows.reduce((s, c) => s + c.pos, 0);
+      const altro = rows.reduce((s, c) => s + c.altroIncasso, 0);
+      const uscite = rows.reduce((s, c) => s + c.totaleUscite, 0);
+      const incassi = contanti + pos + altro;
+      return { id: l.id, name: l.name, giorni: rows.length, contanti, pos, altro, uscite, incassi, netto: incassi - uscite };
+    });
 
   const startEdit = (c) => {
     setEditingId(c.id);
@@ -1733,6 +1746,14 @@ function ClosuresModal({ locations, onClose }) {
             className="f-mono text-sm bg-card rounded-lg px-3 py-1.5 border border-card"
           />
           <button
+            onClick={() => setCompareMode((v) => !v)}
+            className={`f-mono text-xs rounded-lg px-3 py-2 border ${
+              compareMode ? "bg-ink text-white border-ink" : "border-card text-slate2"
+            }`}
+          >
+            Confronta sedi
+          </button>
+          <button
             onClick={handleExport}
             disabled={filtered.length === 0}
             className="ml-auto flex items-center gap-1 f-mono text-xs bg-ink text-white rounded-lg px-3 py-2 disabled:opacity-30"
@@ -1746,6 +1767,40 @@ function ClosuresModal({ locations, onClose }) {
           <div className="text-sm text-faint italic">Nessuna chiusura nel periodo/sedi selezionati</div>
         )}
 
+        {!loading && filtered.length > 0 && compareMode && (
+          <div className="overflow-x-auto mb-4 border border-card rounded-xl">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-card text-left text-faint text-tiny2 uppercase tracking-widest">
+                  <th className="px-3 py-2">Sede</th>
+                  <th className="px-3 py-2 text-right">Giorni</th>
+                  <th className="px-3 py-2 text-right">Contanti</th>
+                  <th className="px-3 py-2 text-right">POS</th>
+                  <th className="px-3 py-2 text-right">Altro</th>
+                  <th className="px-3 py-2 text-right">Uscite</th>
+                  <th className="px-3 py-2 text-right">Netto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {comparison
+                  .sort((a, b) => b.netto - a.netto)
+                  .map((r) => (
+                    <tr key={r.id} className="border-b border-paper last:border-0">
+                      <td className="px-3 py-2 f-display font-600">{r.name}</td>
+                      <td className="px-3 py-2 text-right f-mono text-faint">{r.giorni}</td>
+                      <td className="px-3 py-2 text-right f-mono text-emerald">{fmt.format(r.contanti)}</td>
+                      <td className="px-3 py-2 text-right f-mono text-emerald">{fmt.format(r.pos)}</td>
+                      <td className="px-3 py-2 text-right f-mono text-emerald">{fmt.format(r.altro)}</td>
+                      <td className="px-3 py-2 text-right f-mono text-brick">{fmt.format(r.uscite)}</td>
+                      <td className="px-3 py-2 text-right f-mono font-600">{fmt.format(r.netto)}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {!compareMode && (
         <div className="space-y-3">
           {filtered.map((c) => {
             const loc = locations.find((l) => l.id === c.locationId);
@@ -1840,6 +1895,7 @@ function ClosuresModal({ locations, onClose }) {
             );
           })}
         </div>
+        )}
       </div>
     </div>
   );
