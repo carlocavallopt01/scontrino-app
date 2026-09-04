@@ -19,6 +19,7 @@ import {
   ClipboardCheck,
   X,
   RotateCcw,
+  Search,
 } from "lucide-react";
 import {
   getLocationsPublic,
@@ -1146,6 +1147,7 @@ function OwnerDashboard({
   const [period, setPeriod] = useState("today");
   const [refreshing, setRefreshing] = useState(false);
   const [showClosures, setShowClosures] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
 
   const [cashFloatsList, setCashFloatsList] = useState([]);
   const loadCashFloats = useCallback(() => {
@@ -1306,6 +1308,14 @@ function OwnerDashboard({
           </button>
           <button onClick={handleRefresh} className="p-2 rounded-lg hover:bg-black/5" aria-label="Aggiorna">
             <RefreshCw className={`w-5 h-5 ${refreshing ? "animate-spin" : ""}`} />
+          </button>
+          <button
+            onClick={() => setShowSearch(true)}
+            className="p-2 rounded-lg hover:bg-black/5"
+            aria-label="Cerca scontrino"
+            title="Cerca scontrino per cliente"
+          >
+            <Search className="w-5 h-5" />
           </button>
           <button
             onClick={() => setShowClosures(true)}
@@ -1554,6 +1564,9 @@ function OwnerDashboard({
         />
       )}
       {showClosures && <ClosuresModal locations={locations} onClose={() => setShowClosures(false)} />}
+      {showSearch && (
+        <SearchModal entries={entries} locations={locations} onClose={() => setShowSearch(false)} />
+      )}
     </div>
   );
 }
@@ -1564,6 +1577,74 @@ function BigStat({ label, value, color }) {
       <div className="f-mono text-tiny2 uppercase tracking-widest text-faint mb-1">{label}</div>
       <div className="f-mono text-lg font-600" style={{ color }}>
         {fmt.format(value)}
+      </div>
+    </div>
+  );
+}
+
+function SearchModal({ entries, locations, onClose }) {
+  const [query, setQuery] = useState("");
+
+  const results = query.trim()
+    ? entries
+        .filter((e) => e.cliente && e.cliente.toLowerCase().includes(query.trim().toLowerCase()))
+        .sort((a, b) => (b.date + b.enteredAt).localeCompare(a.date + a.enteredAt))
+    : [];
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-6 z-50" onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl p-6 w-full max-w-lg overflow-y-auto"
+        style={{ maxHeight: "85vh" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="f-display font-600">Cerca scontrino</h3>
+          <button onClick={onClose} className="p-1 text-faint hover:text-ink">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <p className="text-xs text-muted mb-4">
+          Cerca per nome cliente: vedi ogni volta che ha pagato, senza limiti di periodo.
+        </p>
+
+        <div className="relative mb-4">
+          <Search className="w-4 h-4 text-faint absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Nome e cognome…"
+            className="w-full text-sm bg-card rounded-lg pl-9 pr-3 py-2.5 border border-card"
+          />
+        </div>
+
+        {!query.trim() && (
+          <div className="text-sm text-faint italic">Scrivi un nome per iniziare la ricerca</div>
+        )}
+        {query.trim() && results.length === 0 && (
+          <div className="text-sm text-faint italic">Nessuno scontrino trovato per &quot;{query}&quot;</div>
+        )}
+
+        <div className="space-y-2">
+          {results.map((e) => {
+            const loc = locations.find((l) => l.id === e.locationId);
+            const importo = e.contanti + e.pos + e.altroIncasso;
+            return (
+              <div key={e.id} className="border border-card rounded-xl p-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="f-display font-600 text-sm">{e.cliente}</span>
+                  <span className="f-mono text-sm text-emerald">{fmt.format(importo)}</span>
+                </div>
+                <div className="text-xs text-faint">
+                  {fmtDateLabel(e.date)} · {loc?.name || "—"}
+                  {e.abbonamento ? ` · ${e.abbonamento}` : ""}
+                  {e.operatore ? ` · ${e.operatore}` : ""}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
