@@ -42,6 +42,8 @@ import {
   submitClosure,
   editClosure,
   reopenClosure,
+  requestClosureReopen,
+  dismissClosureReopenRequest,
 } from "./lib/api";
 
 const DEFAULT_SUBSCRIPTION_TYPES = ["Mensile", "Trimestrale", "Semestrale", "Annuale", "Ingresso singolo", "Altro"];
@@ -631,6 +633,21 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
   const [closure, setClosure] = useState(null);
   const [closing, setClosing] = useState(false);
   const [closeError, setCloseError] = useState(false);
+  const [requestingReopen, setRequestingReopen] = useState(false);
+  const [reopenReqError, setReopenReqError] = useState(false);
+
+  const handleRequestReopen = async () => {
+    if (!closure) return;
+    setRequestingReopen(true);
+    setReopenReqError(false);
+    try {
+      await requestClosureReopen(closure.id);
+      setClosure((c) => (c ? { ...c, reopenRequested: true } : c));
+    } catch {
+      setReopenReqError(true);
+    }
+    setRequestingReopen(false);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -988,6 +1005,26 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
                   })}
                 {closure?.operatore ? ` da ${closure.operatore}` : ""}. Per modifiche contatta il Titolare.
               </p>
+              {closure?.reopenRequested ? (
+                <div className="mt-3 flex items-center gap-2 text-xs text-brick font-600">
+                  <RotateCcw className="w-3.5 h-3.5" /> Richiesta di riapertura inviata. In attesa di
+                  conferma del Titolare.
+                </div>
+              ) : (
+                <button
+                  onClick={handleRequestReopen}
+                  disabled={requestingReopen}
+                  className="mt-3 w-full flex items-center justify-center gap-1.5 text-xs f-mono border border-card rounded-lg py-2 text-slate2 disabled:opacity-50"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  {requestingReopen ? "Invio richiesta…" : "Richiedi apertura al Titolare"}
+                </button>
+              )}
+              {reopenReqError && (
+                <div className="text-center text-xs text-brick mt-2 font-600">
+                  Richiesta non riuscita. Riprova tra poco.
+                </div>
+              )}
             </div>
           </>
         )}
@@ -1148,6 +1185,24 @@ function OwnerDashboard({
   const [refreshing, setRefreshing] = useState(false);
   const [showClosures, setShowClosures] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [pendingReopenCount, setPendingReopenCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const checkPending = () => {
+      getClosuresList()
+        .then((list) => {
+          if (!cancelled) setPendingReopenCount(list.filter((c) => c.reopenRequested).length);
+        })
+        .catch(() => {});
+    };
+    checkPending();
+    const interval = setInterval(checkPending, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [showClosures]);
 
   const [cashFloatsList, setCashFloatsList] = useState([]);
   const loadCashFloats = useCallback(() => {
@@ -1319,11 +1374,18 @@ function OwnerDashboard({
           </button>
           <button
             onClick={() => setShowClosures(true)}
-            className="p-2 rounded-lg hover:bg-black/5"
+            className="relative p-2 rounded-lg hover:bg-black/5"
             aria-label="Chiusure Attività"
-            title="Chiusure Attività"
+            title={
+              pendingReopenCount > 0
+                ? `Chiusure Attività — ${pendingReopenCount} richiesta/e di riapertura in attesa`
+                : "Chiusure Attività"
+            }
           >
             <ClipboardCheck className="w-5 h-5" />
+            {pendingReopenCount > 0 && (
+              <span className="absolute top-0.5 right-0.5 w-2.5 h-2.5 rounded-full bg-brick border border-white" />
+            )}
           </button>
           <button onClick={() => setShowSettings(true)} className="p-2 rounded-lg hover:bg-black/5" aria-label="Impostazioni">
             <Settings className="w-5 h-5" />
@@ -1672,6 +1734,7 @@ function ClosuresModal({ locations, onClose }) {
   const [editValues, setEditValues] = useState({});
   const [saving, setSaving] = useState(false);
   const [reopeningId, setReopeningId] = useState(null);
+  const [dismissingId, setDismissingId] = useState(null);
   const [compareMode, setCompareMode] = useState(false);
 
   const load = useCallback(() => {
@@ -1757,6 +1820,17 @@ function ClosuresModal({ locations, onClose }) {
     setReopeningId(null);
   };
 
+  const handleDismissRequest = async (id) => {
+    setDismissingId(id);
+    try {
+      await dismissClosureReopenRequest(id);
+      load();
+    } catch {
+      // l'utente può riprovare
+    }
+    setDismissingId(null);
+  };
+
   const handleExport = () => {
     const rows = filtered.map((c) => {
       const loc = locations.find((l) => l.id === c.locationId);
@@ -1795,7 +1869,8 @@ function ClosuresModal({ locations, onClose }) {
         </div>
         <p className="text-xs text-muted mb-4">
           Le chiusure inviate dallo staff a fine giornata. Puoi correggere i numeri o riaprire una
-          giornata (elimina la chiusura e la sblocca per lo staff).
+          giornata (elimina la chiusura e la sblocca per lo staff). Le chiusure evidenziate hanno
+          una richiesta di riapertura dallo staff in attesa di conferma.
         </p>
 
         <div className="flex flex-wrap gap-2 mb-3">
@@ -1888,7 +1963,12 @@ function ClosuresModal({ locations, onClose }) {
             const netto = c.contanti + c.pos + c.altroIncasso - c.totaleUscite;
             const isEditing = editingId === c.id;
             return (
-              <div key={c.id} className="border border-card rounded-xl p-3">
+              <div
+                key={c.id}
+                className={`border rounded-xl p-3 ${
+                  c.reopenRequested ? "border-brick bg-brick/5" : "border-card"
+                }`}
+              >
                 <div className="flex items-center justify-between mb-2">
                   <div>
                     <div className="f-display font-600 text-sm">{loc?.name || "—"}</div>
@@ -1912,16 +1992,42 @@ function ClosuresModal({ locations, onClose }) {
                         Modifica
                       </button>
                     )}
-                    <button
-                      onClick={() => handleReopen(c.id)}
-                      disabled={reopeningId === c.id}
-                      className="p-1.5 text-faint hover:text-brick disabled:opacity-30"
-                      title="Riapri (elimina la chiusura, sblocca per lo staff)"
-                    >
-                      <RotateCcw className="w-4 h-4" />
-                    </button>
+                    {!c.reopenRequested && (
+                      <button
+                        onClick={() => handleReopen(c.id)}
+                        disabled={reopeningId === c.id}
+                        className="p-1.5 text-faint hover:text-brick disabled:opacity-30"
+                        title="Riapri (elimina la chiusura, sblocca per lo staff)"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
+
+                {c.reopenRequested && (
+                  <div className="mb-3 flex items-center justify-between gap-2 bg-white rounded-lg px-3 py-2 border border-brick/40">
+                    <span className="text-xs font-600 text-brick flex items-center gap-1.5">
+                      <RotateCcw className="w-3.5 h-3.5" /> Lo staff ha richiesto la riapertura
+                    </span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => handleDismissRequest(c.id)}
+                        disabled={dismissingId === c.id || reopeningId === c.id}
+                        className="f-mono text-xs border border-card rounded-lg px-2 py-1 text-slate2 disabled:opacity-40"
+                      >
+                        Rifiuta
+                      </button>
+                      <button
+                        onClick={() => handleReopen(c.id)}
+                        disabled={reopeningId === c.id || dismissingId === c.id}
+                        className="f-mono text-xs bg-brick text-white rounded-lg px-2 py-1 disabled:opacity-40"
+                      >
+                        {reopeningId === c.id ? "Conferma…" : "Conferma apertura"}
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {!isEditing ? (
                   <div className="grid grid-cols-2 gap-x-4">

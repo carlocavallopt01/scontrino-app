@@ -199,6 +199,7 @@ function mapClosureFromDb(row) {
     fondoCassa: row.fondo_cassa != null ? Number(row.fondo_cassa) : null,
     operatore: row.operatore || "",
     submittedAt: row.submitted_at,
+    reopenRequested: Boolean(row.reopen_requested),
   };
 }
 
@@ -214,6 +215,7 @@ function mapClosureToDb(c) {
     fondo_cassa: c.fondoCassa,
     operatore: c.operatore,
     submitted_at: c.submittedAt,
+    reopen_requested: c.reopenRequested || false,
   };
 }
 
@@ -252,5 +254,15 @@ export async function editClosure(closure) {
 
 export async function reopenClosure(id) {
   const { error } = await supabase.from("closures").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function requestClosureReopen(id) {
+  const { error } = await supabase.rpc("request_closure_reopen", { p_id: id });
+  if (error) throw error;
+}
+
+export async function dismissClosureReopenRequest(id) {
+  const { error } = await supabase.rpc("dismiss_closure_reopen_request", { p_id: id });
   if (error) throw error;
 }

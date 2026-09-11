@@ -208,6 +208,7 @@ create table if not exists closures (
   fondo_cassa numeric,
   operatore text default '',
   submitted_at timestamptz not null default now(),
+  reopen_requested boolean not null default false,
   unique (location_id, date)
 );
 
@@ -216,6 +217,33 @@ alter table closures enable row level security;
 drop policy if exists "closures anon all" on closures;
 create policy "closures anon all" on closures
   for all to anon using (true) with check (true);
+
+-- Lo staff non può riaprire da sé una chiusura: può solo segnalare al
+-- Titolare che serve una riapertura (es. errore di battitura). Passiamo
+-- da una RPC invece di un UPDATE diretto per lo stesso motivo spiegato
+-- sopra per update_location.
+create or replace function request_closure_reopen(p_id text)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  update closures set reopen_requested = true where id = p_id;
+$$;
+grant execute on function request_closure_reopen(text) to anon;
+
+-- Usata dal Titolare per rifiutare una richiesta di riapertura senza
+-- eliminare la chiusura (a differenza della riapertura vera e propria,
+-- che invece elimina la riga e sblocca la giornata per lo staff).
+create or replace function dismiss_closure_reopen_request(p_id text)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  update closures set reopen_requested = false where id = p_id;
+$$;
+grant execute on function dismiss_closure_reopen_request(text) to anon;
 
 -- ---------------------------------------------------------------------
 -- Dati iniziali (eseguire una sola volta; ON CONFLICT evita duplicati)
