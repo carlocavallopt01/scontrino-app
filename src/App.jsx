@@ -764,6 +764,22 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
       });
       const c = await getClosure(location.id, date);
       setClosure(c);
+      fetch("/api/notify-closure", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          locationName: location.name,
+          date,
+          contanti: todaysTotals.contanti,
+          pos: todaysTotals.pos,
+          altroIncasso: todaysTotals.altro,
+          totaleUscite: todaysTotals.uscite,
+          fondoCassa: fondoCassa !== "" ? toNum(fondoCassa) : null,
+          operatore: operatore || "",
+        }),
+      }).catch(() => {
+        // l'email di notifica è un extra: se fallisce, la chiusura resta comunque valida
+      });
     } catch {
       setCloseError(true);
     }
