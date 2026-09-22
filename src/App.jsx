@@ -20,6 +20,7 @@ import {
   X,
   RotateCcw,
   Search,
+  BarChart3,
 } from "lucide-react";
 import {
   getLocationsPublic,
@@ -1201,6 +1202,7 @@ function OwnerDashboard({
   const [refreshing, setRefreshing] = useState(false);
   const [showClosures, setShowClosures] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [showStats, setShowStats] = useState(false);
   const [pendingReopenCount, setPendingReopenCount] = useState(0);
 
   useEffect(() => {
@@ -1387,6 +1389,14 @@ function OwnerDashboard({
             title="Cerca scontrino per cliente"
           >
             <Search className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => setShowStats(true)}
+            className="p-2 rounded-lg hover:bg-black/5"
+            aria-label="Statistiche"
+            title="Statistiche"
+          >
+            <BarChart3 className="w-5 h-5" />
           </button>
           <button
             onClick={() => setShowClosures(true)}
@@ -1645,6 +1655,9 @@ function OwnerDashboard({
       {showSearch && (
         <SearchModal entries={entries} locations={locations} onClose={() => setShowSearch(false)} />
       )}
+      {showStats && (
+        <StatsModal entries={entries} locations={locations} onClose={() => setShowStats(false)} />
+      )}
     </div>
   );
 }
@@ -1723,6 +1736,226 @@ function SearchModal({ entries, locations, onClose }) {
             );
           })}
         </div>
+      </div>
+    </div>
+  );
+}
+
+const WEEKDAY_LABELS = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
+
+function StatsModal({ entries, locations, onClose }) {
+  const [selectedLoc, setSelectedLoc] = useState(new Set(locations.map((l) => l.id)));
+  const [dateFrom, setDateFrom] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 29);
+    return d.toISOString().slice(0, 10);
+  });
+  const [dateTo, setDateTo] = useState(todayStr());
+
+  const toggleLoc = (id) =>
+    setSelectedLoc((s) => {
+      const next = new Set(s);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  const filtered = useMemo(
+    () => entries.filter((e) => selectedLoc.has(e.locationId) && e.date >= dateFrom && e.date <= dateTo),
+    [entries, selectedLoc, dateFrom, dateTo]
+  );
+
+  const byDate = useMemo(() => {
+    const map = {};
+    filtered.forEach((e) => {
+      const incasso = e.contanti + e.pos + e.altroIncasso;
+      const uscite = e.spese.reduce((s, r) => s + r.importo, 0);
+      if (!map[e.date]) map[e.date] = { date: e.date, incassi: 0, uscite: 0 };
+      map[e.date].incassi += incasso;
+      map[e.date].uscite += uscite;
+    });
+    return Object.values(map)
+      .map((d) => ({ ...d, netto: d.incassi - d.uscite }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [filtered]);
+
+  const totIncassi = byDate.reduce((s, d) => s + d.incassi, 0);
+  const totUscite = byDate.reduce((s, d) => s + d.uscite, 0);
+  const totNetto = totIncassi - totUscite;
+  const mediaGiornaliera = byDate.length > 0 ? totNetto / byDate.length : 0;
+
+  const worstDays = [...byDate].sort((a, b) => a.netto - b.netto).slice(0, 5);
+  const bestDays = [...byDate].sort((a, b) => b.netto - a.netto).slice(0, 5);
+
+  const byWeekday = useMemo(() => {
+    const sums = WEEKDAY_LABELS.map(() => ({ sum: 0, count: 0 }));
+    byDate.forEach((d) => {
+      const jsDay = new Date(d.date + "T00:00:00").getDay();
+      const idx = (jsDay + 6) % 7;
+      sums[idx].sum += d.netto;
+      sums[idx].count += 1;
+    });
+    return WEEKDAY_LABELS.map((label, i) => ({
+      label,
+      media: sums[i].count > 0 ? sums[i].sum / sums[i].count : 0,
+      count: sums[i].count,
+    }));
+  }, [byDate]);
+
+  const bestWeekday = byWeekday.reduce(
+    (best, w) => (w.count > 0 && (!best || w.media > best.media) ? w : best),
+    null
+  );
+  const worstWeekday = byWeekday.reduce(
+    (worst, w) => (w.count > 0 && (!worst || w.media < worst.media) ? w : worst),
+    null
+  );
+
+  const chartData = byDate.map((d) => ({
+    name: new Date(d.date + "T00:00:00").toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" }),
+    Netto: d.netto,
+  }));
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-6 z-50" onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl p-6 w-full max-w-2xl overflow-y-auto"
+        style={{ maxHeight: "85vh" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="f-display font-600">Statistiche</h3>
+          <button onClick={onClose} className="p-1 text-faint hover:text-ink">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <p className="text-xs text-muted mb-4">
+          Scegli le sedi e il periodo da analizzare.
+        </p>
+
+        <div className="flex flex-wrap gap-2 mb-3">
+          {locations.map((l) => (
+            <button
+              key={l.id}
+              onClick={() => toggleLoc(l.id)}
+              className={`px-3 py-1 rounded-full text-xs f-mono border ${
+                selectedLoc.has(l.id) ? "border-ink text-ink" : "border-card text-faint2"
+              }`}
+            >
+              {l.name}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2 mb-5 flex-wrap">
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="f-mono text-sm bg-card rounded-lg px-3 py-1.5 border border-card"
+          />
+          <span className="text-faint">→</span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="f-mono text-sm bg-card rounded-lg px-3 py-1.5 border border-card"
+          />
+        </div>
+
+        {byDate.length === 0 ? (
+          <div className="text-sm text-faint italic">Nessun incasso nel periodo/sedi selezionati</div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3 mb-6">
+              <BigStat label="Incasso totale" value={totIncassi} color="#1F7A5C" />
+              <BigStat label="Uscite totali" value={totUscite} color="#A63A2F" />
+              <BigStat label="Netto totale" value={totNetto} color="#14182B" />
+              <BigStat label="Media giornaliera" value={mediaGiornaliera} color="#14182B" />
+            </div>
+
+            <div className="mb-6">
+              <div className="f-mono text-xs uppercase tracking-widest text-muted mb-2">
+                Andamento netto giornaliero
+              </div>
+              <div style={{ height: 180 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                    <YAxis tick={{ fontSize: 10 }} />
+                    <Tooltip formatter={(v) => fmt.format(v)} />
+                    <Bar dataKey="Netto" fill="#14182B" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-4 mb-6">
+              <div>
+                <div className="f-mono text-xs uppercase tracking-widest text-brick mb-2">
+                  Giorni meno profittevoli
+                </div>
+                <div className="space-y-1.5">
+                  {worstDays.map((d) => (
+                    <div
+                      key={d.date}
+                      className="flex items-center justify-between text-sm bg-card rounded-lg px-3 py-2"
+                    >
+                      <span className="text-slate2">{fmtDateLabel(d.date)}</span>
+                      <span className="f-mono text-brick">{fmt.format(d.netto)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="f-mono text-xs uppercase tracking-widest text-emerald mb-2">
+                  Giorni più profittevoli
+                </div>
+                <div className="space-y-1.5">
+                  {bestDays.map((d) => (
+                    <div
+                      key={d.date}
+                      className="flex items-center justify-between text-sm bg-card rounded-lg px-3 py-2"
+                    >
+                      <span className="text-slate2">{fmtDateLabel(d.date)}</span>
+                      <span className="f-mono text-emerald">{fmt.format(d.netto)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div className="f-mono text-xs uppercase tracking-widest text-muted mb-2">
+                Media per giorno della settimana
+              </div>
+              <div className="grid grid-cols-7 gap-1.5">
+                {byWeekday.map((w) => {
+                  const isBest = bestWeekday && w.label === bestWeekday.label;
+                  const isWorst = worstWeekday && w.label === worstWeekday.label;
+                  return (
+                    <div
+                      key={w.label}
+                      className="rounded-lg p-2 text-center border border-card"
+                      style={
+                        isBest
+                          ? { borderColor: "#1F7A5C", backgroundColor: "#1F7A5C14" }
+                          : isWorst
+                          ? { borderColor: "#A63A2F", backgroundColor: "#A63A2F14" }
+                          : undefined
+                      }
+                    >
+                      <div className="text-tiny2 text-faint uppercase mb-1">{w.label}</div>
+                      <div className="f-mono text-tiny font-600">
+                        {w.count > 0 ? fmt.format(w.media) : "—"}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1981,9 +2214,8 @@ function ClosuresModal({ locations, onClose }) {
             return (
               <div
                 key={c.id}
-                className={`border rounded-xl p-3 ${
-                  c.reopenRequested ? "border-brick bg-brick/5" : "border-card"
-                }`}
+                className={`border rounded-xl p-3 ${c.reopenRequested ? "" : "border-card"}`}
+                style={c.reopenRequested ? { borderColor: "#A63A2F", backgroundColor: "#A63A2F0d" } : undefined}
               >
                 <div className="flex items-center justify-between mb-2">
                   <div>
@@ -2022,7 +2254,10 @@ function ClosuresModal({ locations, onClose }) {
                 </div>
 
                 {c.reopenRequested && (
-                  <div className="mb-3 flex items-center justify-between gap-2 bg-white rounded-lg px-3 py-2 border border-brick/40">
+                  <div
+                    className="mb-3 flex items-center justify-between gap-2 bg-white rounded-lg px-3 py-2 border"
+                    style={{ borderColor: "#A63A2F66" }}
+                  >
                     <span className="text-xs font-600 text-brick flex items-center gap-1.5">
                       <RotateCcw className="w-3.5 h-3.5" /> Lo staff ha richiesto la riapertura
                     </span>
