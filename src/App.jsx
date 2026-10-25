@@ -31,15 +31,16 @@ import {
   setOwnerPin as apiSetOwnerPin,
   getSubscriptionTypes,
   saveSubscriptionTypes as apiSaveSubscriptionTypes,
-  getEntries,
-  addEntry as apiAddEntry,
-  deleteEntry as apiDeleteEntry,
+  getEntriesForLocation,
+  getEntriesAdmin,
+  addEntry,
+  deleteEntry,
   clearAllEntries as apiClearAllEntries,
   getCashFloat,
   setCashFloat,
-  getCashFloatsList,
+  getCashFloatsAdmin,
   getClosure,
-  getClosuresList,
+  getClosuresAdmin,
   submitClosure,
   editClosure,
   reopenClosure,
@@ -180,21 +181,26 @@ export default function App() {
   const [mode, setMode] = useState(null); // 'owner' | 'staff'
   const [error, setError] = useState("");
   const [ownerUnlocked, setOwnerUnlocked] = useState(false);
+  const [ownerPin, setOwnerPinState] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [subscriptionTypes, setSubscriptionTypes] = useState(DEFAULT_SUBSCRIPTION_TYPES);
 
   const [lastUpdated, setLastUpdated] = useState(null);
 
-  const loadEntries = useCallback(async (silent) => {
-    try {
-      const ents = await getEntries();
-      setEntries(ents);
-      setLastUpdated(new Date());
-      if (!silent) setError("");
-    } catch {
-      if (!silent) setError("Non riesco ad aggiornare i dati. Controlla la connessione.");
-    }
-  }, []);
+  const loadEntries = useCallback(
+    async (silent) => {
+      if (!ownerPin) return;
+      try {
+        const ents = await getEntriesAdmin(ownerPin);
+        setEntries(ents);
+        setLastUpdated(new Date());
+        if (!silent) setError("");
+      } catch {
+        if (!silent) setError("Non riesco ad aggiornare i dati. Controlla la connessione.");
+      }
+    },
+    [ownerPin]
+  );
 
   useEffect(() => {
     (async () => {
@@ -205,85 +211,75 @@ export default function App() {
       } catch {
         setError("Non riesco a caricare i dati da Supabase. Controlla la connessione e la configurazione.");
       }
-      await loadEntries(true);
       setLoading(false);
     })();
-  }, [loadEntries]);
-
-  const saveOwnerPin = useCallback(async (newPin) => {
-    try {
-      await withRetry(() => apiSetOwnerPin(newPin));
-      setError("");
-      return true;
-    } catch (err) {
-      setError(`Non sono riuscito a salvare il PIN Titolare: ${err?.message || "errore sconosciuto"}.`);
-      return false;
-    }
-  }, []);
-
-  const saveSubscriptionTypes = useCallback(async (next) => {
-    setSubscriptionTypes(next);
-    try {
-      await withRetry(() => apiSaveSubscriptionTypes(next));
-      setError("");
-      return true;
-    } catch (err) {
-      setError(`Non sono riuscito a salvare gli abbonamenti: ${err?.message || "errore sconosciuto"}.`);
-      return false;
-    }
   }, []);
 
   useEffect(() => {
-    if (mode !== "owner" || settingsOpen) return;
+    if (mode === "owner" && ownerPin) loadEntries(true);
+  }, [mode, ownerPin, loadEntries]);
+
+  const saveOwnerPin = useCallback(
+    async (newPin) => {
+      try {
+        await withRetry(() => apiSetOwnerPin(ownerPin, newPin));
+        setOwnerPinState(newPin);
+        setError("");
+        return true;
+      } catch (err) {
+        setError(`Non sono riuscito a salvare il PIN Titolare: ${err?.message || "errore sconosciuto"}.`);
+        return false;
+      }
+    },
+    [ownerPin]
+  );
+
+  const saveSubscriptionTypes = useCallback(
+    async (next) => {
+      setSubscriptionTypes(next);
+      try {
+        await withRetry(() => apiSaveSubscriptionTypes(next, ownerPin));
+        setError("");
+        return true;
+      } catch (err) {
+        setError(`Non sono riuscito a salvare gli abbonamenti: ${err?.message || "errore sconosciuto"}.`);
+        return false;
+      }
+    },
+    [ownerPin]
+  );
+
+  useEffect(() => {
+    if (mode !== "owner" || settingsOpen || !ownerPin) return;
     const interval = setInterval(() => loadEntries(true), 10000);
     return () => clearInterval(interval);
-  }, [mode, settingsOpen, loadEntries]);
-
-  const onAddEntry = useCallback(async (entry) => {
-    try {
-      await withRetry(() => apiAddEntry(entry));
-      setEntries((prev) => [...prev, entry]);
-      setError("");
-      return true;
-    } catch (err) {
-      setError(`Salvataggio non riuscito: ${err?.message || "errore sconosciuto"}. Riprova tra poco.`);
-      return false;
-    }
-  }, []);
-
-  const onDeleteEntry = useCallback(async (id) => {
-    try {
-      await withRetry(() => apiDeleteEntry(id));
-      setEntries((prev) => prev.filter((e) => e.id !== id));
-      return true;
-    } catch (err) {
-      setError(`Impossibile eliminare la voce: ${err?.message || "errore sconosciuto"}.`);
-      return false;
-    }
-  }, []);
+  }, [mode, settingsOpen, ownerPin, loadEntries]);
 
   const onClearEntries = useCallback(async () => {
     try {
-      await withRetry(() => apiClearAllEntries());
+      await withRetry(() => apiClearAllEntries(ownerPin));
       setEntries([]);
       return true;
     } catch (err) {
       setError(`Impossibile cancellare i dati: ${err?.message || "errore sconosciuto"}.`);
       return false;
     }
-  }, []);
+  }, [ownerPin]);
 
-  const persistLocations = useCallback(async (next) => {
-    try {
-      await withRetry(() => apiSaveLocations(next));
-      setLocations(next.map(({ pin, ...rest }) => rest));
-      setError("");
-      return true;
-    } catch (err) {
-      setError(`Non sono riuscito a salvare le sedi: ${err?.message || "errore sconosciuto"}.`);
-      return false;
-    }
-  }, []);
+  const persistLocations = useCallback(
+    async (next) => {
+      try {
+        await withRetry(() => apiSaveLocations(next, ownerPin));
+        setLocations(next.map(({ pin, ...rest }) => rest));
+        setError("");
+        return true;
+      } catch (err) {
+        setError(`Non sono riuscito a salvare le sedi: ${err?.message || "errore sconosciuto"}.`);
+        return false;
+      }
+    },
+    [ownerPin]
+  );
 
   if (loading) {
     return (
@@ -313,17 +309,23 @@ export default function App() {
         <OwnerPinGate
           onVerify={verifyOwnerPin}
           onBack={() => setMode(null)}
-          onUnlock={() => setOwnerUnlocked(true)}
+          onUnlock={(pin) => {
+            setOwnerUnlocked(true);
+            setOwnerPinState(pin);
+          }}
         />
       )}
       {mode === "owner" && ownerUnlocked && (
         <OwnerDashboard
           locations={locations}
           entries={entries}
+          ownerPin={ownerPin}
           onBack={() => {
             setMode(null);
             setOwnerUnlocked(false);
+            setOwnerPinState(null);
             setSettingsOpen(false);
+            setEntries([]);
           }}
           onSaveLocations={persistLocations}
           onClearEntries={onClearEntries}
@@ -339,14 +341,7 @@ export default function App() {
         />
       )}
       {mode === "staff" && (
-        <StaffFlow
-          locations={locations}
-          entries={entries}
-          onBack={() => setMode(null)}
-          onAddEntry={onAddEntry}
-          onDeleteEntry={onDeleteEntry}
-          subscriptionTypes={subscriptionTypes}
-        />
+        <StaffFlow locations={locations} onBack={() => setMode(null)} subscriptionTypes={subscriptionTypes} />
       )}
     </div>
   );
@@ -365,7 +360,7 @@ function OwnerPinGate({ onVerify, onBack, onUnlock }) {
     try {
       const ok = await onVerify(pin);
       if (ok) {
-        onUnlock();
+        onUnlock(pin);
         return;
       }
       setWrong(true);
@@ -465,19 +460,21 @@ function Landing({ onPick }) {
 
 /* ---------------- STAFF FLOW ---------------- */
 
-function StaffFlow({ locations, entries, onBack, onAddEntry, onDeleteEntry, subscriptionTypes }) {
+function StaffFlow({ locations, onBack, subscriptionTypes }) {
   const [pendingId, setPendingId] = useState(null);
   const [unlockedId, setUnlockedId] = useState(null);
+  const [unlockedPin, setUnlockedPin] = useState(null);
 
   if (unlockedId) {
     const loc = locations.find((l) => l.id === unlockedId);
     return (
       <StaffForm
         location={loc}
-        entries={entries}
-        onBack={() => setUnlockedId(null)}
-        onAddEntry={onAddEntry}
-        onDeleteEntry={onDeleteEntry}
+        pin={unlockedPin}
+        onBack={() => {
+          setUnlockedId(null);
+          setUnlockedPin(null);
+        }}
         subscriptionTypes={subscriptionTypes}
       />
     );
@@ -490,7 +487,10 @@ function StaffFlow({ locations, entries, onBack, onAddEntry, onDeleteEntry, subs
         location={loc}
         onVerify={(pin) => verifyLocationPin(loc.id, pin)}
         onBack={() => setPendingId(null)}
-        onUnlock={() => setUnlockedId(pendingId)}
+        onUnlock={(pin) => {
+          setUnlockedId(pendingId);
+          setUnlockedPin(pin);
+        }}
       />
     );
   }
@@ -533,7 +533,7 @@ function PinGate({ location, onVerify, onBack, onUnlock }) {
     try {
       const ok = await onVerify(pin);
       if (ok) {
-        onUnlock();
+        onUnlock(pin);
         return;
       }
       setWrong(true);
@@ -592,7 +592,7 @@ function TopBar({ title, onBack }) {
   );
 }
 
-function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subscriptionTypes }) {
+function StaffForm({ location, pin, onBack, subscriptionTypes }) {
   const isPalestra = location.type === "palestra";
   const types = subscriptionTypes && subscriptionTypes.length ? subscriptionTypes : DEFAULT_SUBSCRIPTION_TYPES;
   const names = location.staff || [];
@@ -619,7 +619,7 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
   useEffect(() => {
     let cancelled = false;
     setFondoCassaLoaded(false);
-    getCashFloat(location.id, date)
+    getCashFloat(location.id, pin, date)
       .then((amount) => {
         if (cancelled) return;
         setFondoCassa(amount != null ? String(amount).replace(".", ",") : "");
@@ -629,7 +629,17 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
     return () => {
       cancelled = true;
     };
-  }, [location.id, date]);
+  }, [location.id, pin, date]);
+
+  const [entries, setEntries] = useState([]);
+  const loadEntries = useCallback(() => {
+    getEntriesForLocation(location.id, pin, date)
+      .then(setEntries)
+      .catch(() => {});
+  }, [location.id, pin, date]);
+  useEffect(() => {
+    loadEntries();
+  }, [loadEntries]);
 
   const [closure, setClosure] = useState(null);
   const [closing, setClosing] = useState(false);
@@ -642,7 +652,7 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
     setRequestingReopen(true);
     setReopenReqError(false);
     try {
-      await requestClosureReopen(closure.id);
+      await requestClosureReopen(closure.id, location.id, pin);
       setClosure((c) => (c ? { ...c, reopenRequested: true } : c));
     } catch {
       setReopenReqError(true);
@@ -652,7 +662,7 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
 
   useEffect(() => {
     let cancelled = false;
-    getClosure(location.id, date)
+    getClosure(location.id, pin, date)
       .then((c) => {
         if (!cancelled) setClosure(c);
       })
@@ -660,14 +670,14 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
     return () => {
       cancelled = true;
     };
-  }, [location.id, date]);
+  }, [location.id, pin, date]);
 
   const isLocked = !!closure;
 
   const handleSaveFondoCassa = async () => {
     setFondoCassaSaving(true);
     try {
-      await setCashFloat(location.id, date, toNum(fondoCassa));
+      await setCashFloat(location.id, pin, date, toNum(fondoCassa));
       setFondoCassaSaved(true);
       setTimeout(() => setFondoCassaSaved(false), 1500);
     } catch {
@@ -708,12 +718,15 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
     };
     setSaveError(false);
     setSaving(true);
-    const ok = await onAddEntry(entry);
-    setSaving(false);
-    if (!ok) {
+    try {
+      await withRetry(() => addEntry(entry, pin));
+      loadEntries();
+    } catch {
+      setSaving(false);
       setSaveError(true);
       return;
     }
+    setSaving(false);
     setContanti("");
     setContantiInviato(false);
     setPos("");
@@ -728,12 +741,15 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
   };
 
   const handleDelete = async (id) => {
-    await onDeleteEntry(id);
+    try {
+      await withRetry(() => deleteEntry(id, location.id, pin));
+      loadEntries();
+    } catch {
+      // l'utente può riprovare toccando di nuovo il cestino
+    }
   };
 
-  const todaysForLocation = entries
-    .filter((e) => e.locationId === location.id && e.date === date)
-    .sort((a, b) => b.enteredAt.localeCompare(a.enteredAt));
+  const todaysForLocation = [...entries].sort((a, b) => b.enteredAt.localeCompare(a.enteredAt));
 
   const todaysTotals = todaysForLocation.reduce(
     (acc, e) => {
@@ -751,19 +767,22 @@ function StaffForm({ location, entries, onBack, onAddEntry, onDeleteEntry, subsc
     setClosing(true);
     setCloseError(false);
     try {
-      await submitClosure({
-        id: uid(),
-        locationId: location.id,
-        date,
-        contanti: todaysTotals.contanti,
-        pos: todaysTotals.pos,
-        altroIncasso: todaysTotals.altro,
-        totaleUscite: todaysTotals.uscite,
-        fondoCassa: fondoCassa !== "" ? toNum(fondoCassa) : null,
-        operatore: operatore || "",
-        submittedAt: new Date().toISOString(),
-      });
-      const c = await getClosure(location.id, date);
+      await submitClosure(
+        {
+          id: uid(),
+          locationId: location.id,
+          date,
+          contanti: todaysTotals.contanti,
+          pos: todaysTotals.pos,
+          altroIncasso: todaysTotals.altro,
+          totaleUscite: todaysTotals.uscite,
+          fondoCassa: fondoCassa !== "" ? toNum(fondoCassa) : null,
+          operatore: operatore || "",
+          submittedAt: new Date().toISOString(),
+        },
+        pin
+      );
+      const c = await getClosure(location.id, pin, date);
       setClosure(c);
       fetch("/api/notify-closure", {
         method: "POST",
@@ -1185,6 +1204,7 @@ function periodRange(period, custom) {
 function OwnerDashboard({
   locations,
   entries,
+  ownerPin,
   onBack,
   onSaveLocations,
   lastUpdated,
@@ -1208,7 +1228,7 @@ function OwnerDashboard({
   useEffect(() => {
     let cancelled = false;
     const checkPending = () => {
-      getClosuresList()
+      getClosuresAdmin(ownerPin)
         .then((list) => {
           if (!cancelled) setPendingReopenCount(list.filter((c) => c.reopenRequested).length);
         })
@@ -1220,12 +1240,12 @@ function OwnerDashboard({
       cancelled = true;
       clearInterval(interval);
     };
-  }, [showClosures]);
+  }, [showClosures, ownerPin]);
 
   const [cashFloatsList, setCashFloatsList] = useState([]);
   const loadCashFloats = useCallback(() => {
-    getCashFloatsList().then(setCashFloatsList).catch(() => {});
-  }, []);
+    getCashFloatsAdmin(ownerPin).then(setCashFloatsList).catch(() => {});
+  }, [ownerPin]);
   useEffect(() => {
     loadCashFloats();
   }, [loadCashFloats]);
@@ -1641,6 +1661,7 @@ function OwnerDashboard({
       {showSettings && (
         <SettingsModal
           locations={locations}
+          ownerPin={ownerPin}
           onClose={() => setShowSettings(false)}
           onSave={onSaveLocations}
           onSaveOwnerPin={onSaveOwnerPin}
@@ -1651,7 +1672,9 @@ function OwnerDashboard({
           onDismissError={onDismissError}
         />
       )}
-      {showClosures && <ClosuresModal locations={locations} onClose={() => setShowClosures(false)} />}
+      {showClosures && (
+        <ClosuresModal locations={locations} ownerPin={ownerPin} onClose={() => setShowClosures(false)} />
+      )}
       {showSearch && (
         <SearchModal entries={entries} locations={locations} onClose={() => setShowSearch(false)} />
       )}
@@ -1969,7 +1992,7 @@ const CLOSURE_FIELDS = [
   { key: "fondoCassa", label: "Fondo cassa" },
 ];
 
-function ClosuresModal({ locations, onClose }) {
+function ClosuresModal({ locations, ownerPin, onClose }) {
   const [closuresList, setClosuresList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedLoc, setSelectedLoc] = useState(new Set(locations.map((l) => l.id)));
@@ -1988,13 +2011,13 @@ function ClosuresModal({ locations, onClose }) {
 
   const load = useCallback(() => {
     setLoading(true);
-    getClosuresList()
+    getClosuresAdmin(ownerPin)
       .then((list) => {
         setClosuresList(list);
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, []);
+  }, [ownerPin]);
 
   useEffect(() => {
     load();
@@ -2042,14 +2065,17 @@ function ClosuresModal({ locations, onClose }) {
   const saveEdit = async (c) => {
     setSaving(true);
     try {
-      await editClosure({
-        ...c,
-        contanti: toNum(editValues.contanti),
-        pos: toNum(editValues.pos),
-        altroIncasso: toNum(editValues.altroIncasso),
-        totaleUscite: toNum(editValues.totaleUscite),
-        fondoCassa: editValues.fondoCassa !== "" ? toNum(editValues.fondoCassa) : null,
-      });
+      await editClosure(
+        {
+          ...c,
+          contanti: toNum(editValues.contanti),
+          pos: toNum(editValues.pos),
+          altroIncasso: toNum(editValues.altroIncasso),
+          totaleUscite: toNum(editValues.totaleUscite),
+          fondoCassa: editValues.fondoCassa !== "" ? toNum(editValues.fondoCassa) : null,
+        },
+        ownerPin
+      );
       setEditingId(null);
       load();
     } catch {
@@ -2061,7 +2087,7 @@ function ClosuresModal({ locations, onClose }) {
   const handleReopen = async (id) => {
     setReopeningId(id);
     try {
-      await reopenClosure(id);
+      await reopenClosure(id, ownerPin);
       load();
     } catch {
       // l'utente può riprovare
@@ -2072,7 +2098,7 @@ function ClosuresModal({ locations, onClose }) {
   const handleDismissRequest = async (id) => {
     setDismissingId(id);
     try {
-      await dismissClosureReopenRequest(id);
+      await dismissClosureReopenRequest(id, ownerPin);
       load();
     } catch {
       // l'utente può riprovare
@@ -2341,6 +2367,7 @@ function ClosuresModal({ locations, onClose }) {
 
 function SettingsModal({
   locations,
+  ownerPin,
   onClose,
   onSave,
   onSaveOwnerPin,
@@ -2361,7 +2388,7 @@ function SettingsModal({
 
   useEffect(() => {
     let cancelled = false;
-    getLocationsAdmin()
+    getLocationsAdmin(ownerPin)
       .then((admin) => {
         if (cancelled) return;
         const byId = Object.fromEntries(admin.map((a) => [a.id, a.pin]));
@@ -2373,7 +2400,7 @@ function SettingsModal({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [ownerPin]);
 
   const addStaffTo = (i) => {
     const v = (newStaffInputs[i] || "").trim();

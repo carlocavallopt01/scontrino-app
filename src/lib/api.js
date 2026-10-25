@@ -22,24 +22,6 @@ function mapEntryFromDb(row) {
   };
 }
 
-function mapEntryToDb(entry) {
-  return {
-    id: entry.id,
-    location_id: entry.locationId,
-    date: entry.date,
-    contanti: entry.contanti,
-    contanti_inviato: entry.contantiInviato,
-    pos: entry.pos,
-    altro_incasso: entry.altroIncasso,
-    spese: entry.spese,
-    note: entry.note,
-    cliente: entry.cliente,
-    abbonamento: entry.abbonamento,
-    operatore: entry.operatore,
-    entered_at: entry.enteredAt,
-  };
-}
-
 export async function getLocationsPublic() {
   const { data, error } = await supabase
     .from("locations_public")
@@ -55,8 +37,8 @@ export async function getLocationsPublic() {
   }));
 }
 
-export async function getLocationsAdmin() {
-  const { data, error } = await supabase.rpc("get_locations_admin");
+export async function getLocationsAdmin(ownerPin) {
+  const { data, error } = await supabase.rpc("get_locations_admin", { p_owner_pin: ownerPin });
   if (error) throw error;
   return data.map((l) => ({
     id: l.id,
@@ -68,13 +50,10 @@ export async function getLocationsAdmin() {
   }));
 }
 
-export async function saveLocations(locations) {
-  // Passa dalla RPC update_location (security definer) invece di un
-  // UPDATE diretto sulla tabella: su questo progetto un UPDATE come anon
-  // non risultava mai effettivo nonostante grant e policy corretti, senza
-  // sollevare alcun errore. La RPC bypassa del tutto quel problema.
+export async function saveLocations(locations, ownerPin) {
   for (const l of locations) {
     const { error } = await supabase.rpc("update_location", {
+      p_owner_pin: ownerPin,
       p_id: l.id,
       p_name: l.name,
       p_type: l.type,
@@ -101,8 +80,8 @@ export async function verifyOwnerPin(pin) {
   return Boolean(data);
 }
 
-export async function setOwnerPin(pin) {
-  const { error } = await supabase.rpc("set_owner_pin", { p_pin: pin });
+export async function setOwnerPin(oldPin, newPin) {
+  const { error } = await supabase.rpc("set_owner_pin", { p_old_pin: oldPin, p_new_pin: newPin });
   if (error) throw error;
 }
 
@@ -116,53 +95,76 @@ export async function getSubscriptionTypes() {
   return data?.value || null;
 }
 
-export async function saveSubscriptionTypes(next) {
-  const { error } = await supabase
-    .from("settings")
-    .upsert({ key: "subscription_types", value: next }, { onConflict: "key" });
+export async function saveSubscriptionTypes(next, ownerPin) {
+  const { error } = await supabase.rpc("save_subscription_types", {
+    p_owner_pin: ownerPin,
+    p_value: next,
+  });
   if (error) throw error;
 }
 
-export async function getEntries() {
-  const { data, error } = await supabase
-    .from("entries")
-    .select("*")
-    .order("entered_at", { ascending: true });
+export async function getEntriesForLocation(locationId, pin, date) {
+  const { data, error } = await supabase.rpc("get_entries_for_location", {
+    p_location_id: locationId,
+    p_pin: pin,
+    p_date: date,
+  });
   if (error) throw error;
   return data.map(mapEntryFromDb);
 }
 
-export async function addEntry(entry) {
-  const { error } = await supabase.from("entries").insert(mapEntryToDb(entry));
+export async function getEntriesAdmin(ownerPin) {
+  const { data, error } = await supabase.rpc("get_entries_admin", { p_owner_pin: ownerPin });
+  if (error) throw error;
+  return data.map(mapEntryFromDb);
+}
+
+export async function addEntry(entry, pin) {
+  const { error } = await supabase.rpc("add_entry", {
+    p_location_id: entry.locationId,
+    p_pin: pin,
+    p_id: entry.id,
+    p_date: entry.date,
+    p_contanti: entry.contanti,
+    p_contanti_inviato: entry.contantiInviato,
+    p_pos: entry.pos,
+    p_altro_incasso: entry.altroIncasso,
+    p_spese: entry.spese,
+    p_note: entry.note,
+    p_cliente: entry.cliente,
+    p_abbonamento: entry.abbonamento,
+    p_operatore: entry.operatore,
+    p_entered_at: entry.enteredAt,
+  });
   if (error) throw error;
 }
 
-export async function deleteEntry(id) {
-  const { error } = await supabase.from("entries").delete().eq("id", id);
+export async function deleteEntry(id, locationId, pin) {
+  const { error } = await supabase.rpc("delete_entry", {
+    p_id: id,
+    p_location_id: locationId,
+    p_pin: pin,
+  });
   if (error) throw error;
 }
 
-export async function clearAllEntries() {
-  const { error } = await supabase.from("entries").delete().neq("id", "");
+export async function clearAllEntries(ownerPin) {
+  const { error } = await supabase.rpc("clear_all_entries", { p_owner_pin: ownerPin });
   if (error) throw error;
 }
 
-export async function getCashFloat(locationId, date) {
-  const { data, error } = await supabase
-    .from("cash_floats")
-    .select("amount")
-    .eq("location_id", locationId)
-    .eq("date", date)
-    .maybeSingle();
+export async function getCashFloat(locationId, pin, date) {
+  const { data, error } = await supabase.rpc("get_cash_float", {
+    p_location_id: locationId,
+    p_pin: pin,
+    p_date: date,
+  });
   if (error) throw error;
-  return data ? Number(data.amount) : null;
+  return data != null ? Number(data) : null;
 }
 
-export async function getCashFloatsList() {
-  const { data, error } = await supabase
-    .from("cash_floats")
-    .select("location_id, date, amount")
-    .order("date", { ascending: false });
+export async function getCashFloatsAdmin(ownerPin) {
+  const { data, error } = await supabase.rpc("get_cash_floats_admin", { p_owner_pin: ownerPin });
   if (error) throw error;
   return data.map((row) => ({
     locationId: row.location_id,
@@ -171,19 +173,13 @@ export async function getCashFloatsList() {
   }));
 }
 
-export async function setCashFloat(locationId, date, amount) {
-  // Delete + insert invece di un upsert: su questo progetto un upsert
-  // (INSERT ... ON CONFLICT) su locations non risultava mai effettivo per
-  // motivi mai chiariti; insert e delete singoli invece hanno sempre
-  // funzionato, quindi qui evitiamo del tutto ON CONFLICT.
-  await supabase
-    .from("cash_floats")
-    .delete()
-    .eq("location_id", locationId)
-    .eq("date", date);
-  const { error } = await supabase
-    .from("cash_floats")
-    .insert({ location_id: locationId, date, amount });
+export async function setCashFloat(locationId, pin, date, amount) {
+  const { error } = await supabase.rpc("set_cash_float", {
+    p_location_id: locationId,
+    p_pin: pin,
+    p_date: date,
+    p_amount: amount,
+  });
   if (error) throw error;
 }
 
@@ -203,66 +199,70 @@ function mapClosureFromDb(row) {
   };
 }
 
-function mapClosureToDb(c) {
-  return {
-    id: c.id,
-    location_id: c.locationId,
-    date: c.date,
-    contanti: c.contanti,
-    pos: c.pos,
-    altro_incasso: c.altroIncasso,
-    totale_uscite: c.totaleUscite,
-    fondo_cassa: c.fondoCassa,
-    operatore: c.operatore,
-    submitted_at: c.submittedAt,
-    reopen_requested: c.reopenRequested || false,
-  };
-}
-
-export async function getClosure(locationId, date) {
-  const { data, error } = await supabase
-    .from("closures")
-    .select("*")
-    .eq("location_id", locationId)
-    .eq("date", date)
-    .maybeSingle();
+export async function getClosure(locationId, pin, date) {
+  const { data, error } = await supabase.rpc("get_closure", {
+    p_location_id: locationId,
+    p_pin: pin,
+    p_date: date,
+  });
   if (error) throw error;
-  return data ? mapClosureFromDb(data) : null;
+  return data && data[0] ? mapClosureFromDb(data[0]) : null;
 }
 
-export async function getClosuresList() {
-  const { data, error } = await supabase
-    .from("closures")
-    .select("*")
-    .order("date", { ascending: false });
+export async function getClosuresAdmin(ownerPin) {
+  const { data, error } = await supabase.rpc("get_closures_admin", { p_owner_pin: ownerPin });
   if (error) throw error;
   return data.map(mapClosureFromDb);
 }
 
-export async function submitClosure(closure) {
-  const { error } = await supabase.from("closures").insert(mapClosureToDb(closure));
+export async function submitClosure(closure, pin) {
+  const { error } = await supabase.rpc("submit_closure", {
+    p_location_id: closure.locationId,
+    p_pin: pin,
+    p_id: closure.id,
+    p_date: closure.date,
+    p_contanti: closure.contanti,
+    p_pos: closure.pos,
+    p_altro_incasso: closure.altroIncasso,
+    p_totale_uscite: closure.totaleUscite,
+    p_fondo_cassa: closure.fondoCassa,
+    p_operatore: closure.operatore,
+    p_submitted_at: closure.submittedAt,
+  });
   if (error) throw error;
 }
 
-export async function editClosure(closure) {
-  // Delete + insert (stesso id) invece di un UPDATE, per lo stesso motivo
-  // spiegato sopra per cash_floats.
-  await supabase.from("closures").delete().eq("id", closure.id);
-  const { error } = await supabase.from("closures").insert(mapClosureToDb(closure));
+export async function editClosure(closure, ownerPin) {
+  const { error } = await supabase.rpc("edit_closure", {
+    p_owner_pin: ownerPin,
+    p_id: closure.id,
+    p_contanti: closure.contanti,
+    p_pos: closure.pos,
+    p_altro_incasso: closure.altroIncasso,
+    p_totale_uscite: closure.totaleUscite,
+    p_fondo_cassa: closure.fondoCassa,
+  });
   if (error) throw error;
 }
 
-export async function reopenClosure(id) {
-  const { error } = await supabase.from("closures").delete().eq("id", id);
+export async function reopenClosure(id, ownerPin) {
+  const { error } = await supabase.rpc("reopen_closure", { p_owner_pin: ownerPin, p_id: id });
   if (error) throw error;
 }
 
-export async function requestClosureReopen(id) {
-  const { error } = await supabase.rpc("request_closure_reopen", { p_id: id });
+export async function requestClosureReopen(id, locationId, pin) {
+  const { error } = await supabase.rpc("request_closure_reopen", {
+    p_location_id: locationId,
+    p_pin: pin,
+    p_id: id,
+  });
   if (error) throw error;
 }
 
-export async function dismissClosureReopenRequest(id) {
-  const { error } = await supabase.rpc("dismiss_closure_reopen_request", { p_id: id });
+export async function dismissClosureReopenRequest(id, ownerPin) {
+  const { error } = await supabase.rpc("dismiss_closure_reopen_request", {
+    p_owner_pin: ownerPin,
+    p_id: id,
+  });
   if (error) throw error;
 }
